@@ -53,28 +53,34 @@ let myFullName = "";
 const servers = { iceServers: [{ urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }] };
 
 // ================= AUTHENTICATION & PROFILE =================
-document.getElementById('register-btn').addEventListener('click', () => {
+document.getElementById('register-btn').addEventListener('click', async () => {
     const name = regNameInput.value.trim();
     const dept = regDeptInput.value;
+    const email = emailInput.value.trim();
+    const password = passInput.value;
     
-    if(!name || !dept) {
-        alert("Naya account banane ke liye 'Naam' aur 'Department' lazmi likhein!");
+    if(!name || !dept || !email || !password) {
+        alert("Registration ke liye Name, Department, Email aur Password sab lazmi hain!");
         return;
     }
 
-    createUserWithEmailAndPassword(auth, emailInput.value, passInput.value)
-    .then((userCredential) => {
+    try {
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
-        // Naye user ki mukammal detail DB mein save karein
-        set(ref(db, `users/${user.uid}`), {
+        
+        // Zaroori: Database mein user ka data lazmi save karna hai
+        await set(ref(db, `users/${user.uid}`), {
             uid: user.uid,
             email: user.email,
             name: name,
             department: dept,
             status: 'online'
         });
-    })
-    .catch(err => alert("Error: " + err.message));
+        
+        alert("Registration successful! Aap ab logged in hain.");
+    } catch (err) {
+        alert("Error: " + err.message);
+    }
 });
 
 document.getElementById('login-btn').addEventListener('click', () => {
@@ -92,21 +98,26 @@ onAuthStateChanged(auth, (user) => {
         authSection.style.display = 'none';
         appSection.style.display = 'flex';
 
-        // Update status to online (bina Name/Dept overwrite kiye)
-        update(ref(db, `users/${user.uid}`), { uid: user.uid, email: user.email, status: 'online' });
-        onDisconnect(ref(db, `users/${user.uid}/status`)).set('offline');
-
-        // Apni profile detail get karein aur Header mein dikhayein
         onValue(ref(db, `users/${user.uid}`), (snapshot) => {
             const data = snapshot.val();
-            if(data && data.name) {
-                myFullName = `${data.name} (${data.department})`;
-                myNameDisplay.innerHTML = `<strong>${data.name}</strong> <br><small>${data.department}</small>`;
+            if(data) {
+                myFullName = `${data.name || ''} (${data.department || ''})`;
+                myNameDisplay.innerHTML = `<strong>${data.name || user.email.split('@')[0]}</strong> <br><small>${data.department || ''}</small>`;
+                
+                // Status update karein (Bina data delete kiye)
+                update(ref(db, `users/${user.uid}`), { status: 'online' });
             } else {
-                myFullName = user.email.split('@')[0];
-                myNameDisplay.innerText = myFullName;
+                 // Agar purana account hai jiska data DB mein nahi, usay bhi sambhal lein
+                 myNameDisplay.innerText = user.email.split('@')[0];
+                 set(ref(db, `users/${user.uid}`), {
+                     uid: user.uid,
+                     email: user.email,
+                     status: 'online'
+                 });
             }
         }, { onlyOnce: true });
+        
+        onDisconnect(ref(db, `users/${user.uid}/status`)).set('offline');
 
         loadUsersList();
         listenForIncomingCalls();
@@ -117,7 +128,7 @@ onAuthStateChanged(auth, (user) => {
     }
 });
 
-// ================= USERS LIST (WITH DEPARTMENTS) =================
+// ================= USERS LIST =================
 function loadUsersList() {
     onValue(ref(db, 'users'), (snapshot) => {
         usersListDiv.innerHTML = '';
@@ -130,7 +141,6 @@ function loadUsersList() {
                 
                 const statusDot = u.status === 'online' ? '<span class="online-dot"></span>' : '<span class="offline-dot"></span>';
                 
-                // Name aur Department Format
                 let displayName = "";
                 if(u.name && u.department) {
                     displayName = `<div><strong>${u.name}</strong><br><small style="color:#666;">${u.department}</small></div>`;
@@ -146,7 +156,7 @@ function loadUsersList() {
                     callButtons.style.display = 'block';
                     chatInputArea.style.display = 'flex';
                     loadMessages();
-                    loadUsersList(); // active class refresh karne ke liye
+                    loadUsersList(); 
                 };
                 usersListDiv.appendChild(item);
             }
@@ -295,7 +305,6 @@ async function startCall(isVideo) {
     await peerConnection.setLocalDescription(offer);
     set(ref(db, `calls/${currentCallId}/offer`), { type: offer.type, sdp: offer.sdp });
 
-    // Call ke sath apna mukammal naam bhejein
     set(ref(db, `users/${selectedUser.uid}/incomingCall`), { 
         callId: currentCallId, 
         callerName: myFullName, 
