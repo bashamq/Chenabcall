@@ -1,0 +1,221 @@
+// Firebase Imports
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { getDatabase, ref, push, onChildAdded, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+// ====== AAPKA FIREBASE CONFIG ADD KAR DIYA HAI ======
+const firebaseConfig = {
+  apiKey: "AIzaSyCjOP1sVNRCa3byVzDf0MXG4OGGPLXf4DI",
+  authDomain: "chenabcall.firebaseapp.com",
+  projectId: "chenabcall",
+  storageBucket: "chenabcall.firebasestorage.app",
+  messagingSenderId: "493814518178",
+  appId: "1:493814518178:web:4e661c0a791a35b09c62fb",
+  measurementId: "G-534MHSRCJD"
+};
+// ======================================================
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getDatabase(app);
+
+// HTML Elements ko get karna
+const authSection = document.getElementById('auth-section');
+const appSection = document.getElementById('app-section');
+const emailInput = document.getElementById('email');
+const passInput = document.getElementById('password');
+const userEmailDisplay = document.getElementById('user-email-display');
+const messagesDiv = document.getElementById('messages');
+const msgInput = document.getElementById('msg-input');
+
+let currentUser = null;
+
+// ================= 1. AUTHENTICATION (LOGIN/REGISTER) =================
+
+document.getElementById('register-btn').addEventListener('click', () => {
+    createUserWithEmailAndPassword(auth, emailInput.value, passInput.value)
+        .then(() => alert("Account ban gaya! Ab aap automatically login ho jayenge."))
+        .catch(err => alert("Error: " + err.message));
+});
+
+document.getElementById('login-btn').addEventListener('click', () => {
+    signInWithEmailAndPassword(auth, emailInput.value, passInput.value)
+        .catch(err => alert("Error: " + err.message));
+});
+
+document.getElementById('logout-btn').addEventListener('click', () => {
+    signOut(auth);
+});
+
+// Check karna ke user login hai ya nahi
+onAuthStateChanged(auth, (user) => {
+    if (user) {
+        currentUser = user;
+        authSection.style.display = 'none';
+        appSection.style.display = 'block';
+        userEmailDisplay.innerText = user.email;
+        setupCamera(); // Login hotay hi camera on karna
+    } else {
+        currentUser = null;
+        authSection.style.display = 'block';
+        appSection.style.display = 'none';
+    }
+});
+
+// ================= 2. CHAT SYSTEM =================
+
+document.getElementById('send-btn').addEventListener('click', () => {
+    if (msgInput.value.trim() === "") return;
+    push(ref(db, 'messages'), {
+        sender: currentUser.email,
+        text: msgInput.value,
+        timestamp: Date.now()
+    });
+    msgInput.value = ""; 
+});
+
+// Realtime Messages Show karna
+onChildAdded(ref(db, 'messages'), (snapshot) => {
+    const data = snapshot.val();
+    const msgElement = document.createElement('div');
+    msgElement.className = 'message';
+    msgElement.innerHTML = `<strong>${data.sender.split('@')[0]}:</strong> ${data.text}`;
+    messagesDiv.appendChild(msgElement);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+});
+
+// ================= 3. VIDEO CALLING (WebRTC) =================
+
+const localVideo = document.getElementById('local-video');
+const remoteVideo = document.getElementById('remote-video');
+const callIdDisplay = document.getElementById('call-id-display');
+let localStream = null;
+let remoteStream = null;
+let peerConnection = null;
+
+const servers = {
+    iceServers: [
+        { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] } // Free Google STUN Servers
+    ]
+};
+
+// Camera aur Mic ki permission lena
+async function setupCamera() {
+    try {
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localVideo.srcObject = localStream;
+    } catch (error) {
+        alert("Camera ya Mic ki permission nahi mili: " + error.message);
+    }
+}
+
+// ----------------- CALL START KARNA (Creator) -----------------
+document.getElementById('create-call-btn').addEventListener('click', async () => {
+    peerConnection = new RTCPeerConnection(servers);
+    remoteStream = new MediaStream();
+    remoteVideo.srcObject = remoteStream;
+
+    // Apna video track connection me dalna
+    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+    // Doosre user ka video track aane par screen pe dikhana
+    peerConnection.ontrack = event => {
+        event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
+    };
+
+    // Firebase me call ki jagah (ID) banana
+    const callDocRef = push(ref(db, 'calls'));
+    const callId = callDocRef.key;
+    callIdDisplay.innerText = callId; // Yeh ID user ko screen par dikhegi
+    document.getElementById('hangup-btn').style.display = 'inline-block';
+
+    // ICE Candidates jama karna (Network connection info)
+    peerConnection.onicecandidate = event => {
+        if (event.candidate) {
+            push(ref(db, `calls/${callId}/callerCandidates`), event.candidate.toJSON());
+        }
+    };
+
+    // Offer banakar Firebase me save karna
+    const offerDescription = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offerDescription);
+    
+    set(ref(db, `calls/${callId}/offer`), {
+        type: offerDescription.type,
+        sdp: offerDescription.sdp
+    });
+
+    // Jab receiver answer kare, toh usey set karna
+    onValue(ref(db, `calls/${callId}/answer`), (snapshot) => {
+        const data = snapshot.val();
+        if (!peerConnection.currentRemoteDescription && data) {
+            const answerDescription = new RTCSessionDescription(data);
+            peerConnection.setRemoteDescription(answerDescription);
+        }
+    });
+
+    // Receiver ke ICE candidates aane par network connect karna
+    onChildAdded(ref(db, `calls/${callId}/calleeCandidates`), (snapshot) => {
+        const candidate = new RTCIceCandidate(snapshot.val());
+        peerConnection.addIceCandidate(candidate);
+    });
+});
+
+// ----------------- CALL JOIN KARNA (Receiver) -----------------
+document.getElementById('join-call-btn').addEventListener('click', async () => {
+    const callId = document.getElementById('join-call-input').value;
+    if (!callId) {
+        alert("Pehle Call ID likhein!");
+        return;
+    }
+
+    peerConnection = new RTCPeerConnection(servers);
+    remoteStream = new MediaStream();
+    remoteVideo.srcObject = remoteStream;
+
+    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+    peerConnection.ontrack = event => {
+        event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
+    };
+
+    peerConnection.onicecandidate = event => {
+        if (event.candidate) {
+            push(ref(db, `calls/${callId}/calleeCandidates`), event.candidate.toJSON());
+        }
+    };
+
+    // Firebase se Offer uthana aur Answer bhejna
+    onValue(ref(db, `calls/${callId}/offer`), async (snapshot) => {
+        const offerData = snapshot.val();
+        if (offerData) {
+            const offerDescription = new RTCSessionDescription(offerData);
+            await peerConnection.setRemoteDescription(offerDescription);
+
+            const answerDescription = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answerDescription);
+
+            set(ref(db, `calls/${callId}/answer`), {
+                type: answerDescription.type,
+                sdp: answerDescription.sdp
+            });
+        }
+    }, { onlyOnce: true });
+
+    // Caller ke ICE candidates receive karna
+    onChildAdded(ref(db, `calls/${callId}/callerCandidates`), (snapshot) => {
+        const candidate = new RTCIceCandidate(snapshot.val());
+        peerConnection.addIceCandidate(candidate);
+    });
+    
+    document.getElementById('hangup-btn').style.display = 'inline-block';
+});
+
+// ----------------- CALL KHATAM KARNA (Hangup) -----------------
+document.getElementById('hangup-btn').addEventListener('click', () => {
+    if(peerConnection) peerConnection.close();
+    remoteVideo.srcObject = null;
+    document.getElementById('hangup-btn').style.display = 'none';
+    callIdDisplay.innerText = "Abhi koi call nahi";
+});
