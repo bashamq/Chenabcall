@@ -20,6 +20,8 @@ const db = getDatabase(app);
 // DOM Elements
 const authSection = document.getElementById('auth-section');
 const appSection = document.getElementById('app-section');
+const regNameInput = document.getElementById('reg-name');
+const regDeptInput = document.getElementById('reg-dept');
 const emailInput = document.getElementById('email');
 const passInput = document.getElementById('password');
 const myNameDisplay = document.getElementById('my-name');
@@ -46,12 +48,33 @@ let peerConnection = null;
 let localStream = null;
 let remoteStream = null;
 let currentCallId = null;
+let myFullName = "";
 
 const servers = { iceServers: [{ urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }] };
 
-// ================= AUTHENTICATION =================
+// ================= AUTHENTICATION & PROFILE =================
 document.getElementById('register-btn').addEventListener('click', () => {
-    createUserWithEmailAndPassword(auth, emailInput.value, passInput.value).catch(err => alert("Error: " + err.message));
+    const name = regNameInput.value.trim();
+    const dept = regDeptInput.value;
+    
+    if(!name || !dept) {
+        alert("Naya account banane ke liye 'Naam' aur 'Department' lazmi likhein!");
+        return;
+    }
+
+    createUserWithEmailAndPassword(auth, emailInput.value, passInput.value)
+    .then((userCredential) => {
+        const user = userCredential.user;
+        // Naye user ki mukammal detail DB mein save karein
+        set(ref(db, `users/${user.uid}`), {
+            uid: user.uid,
+            email: user.email,
+            name: name,
+            department: dept,
+            status: 'online'
+        });
+    })
+    .catch(err => alert("Error: " + err.message));
 });
 
 document.getElementById('login-btn').addEventListener('click', () => {
@@ -59,7 +82,7 @@ document.getElementById('login-btn').addEventListener('click', () => {
 });
 
 document.getElementById('logout-btn').addEventListener('click', () => {
-    if (currentUser) set(ref(db, `users/${currentUser.uid}/status`), 'offline');
+    if (currentUser) update(ref(db, `users/${currentUser.uid}`), { status: 'offline' });
     signOut(auth);
 });
 
@@ -68,10 +91,22 @@ onAuthStateChanged(auth, (user) => {
         currentUser = user;
         authSection.style.display = 'none';
         appSection.style.display = 'flex';
-        myNameDisplay.innerText = user.email.split('@')[0];
 
-        set(ref(db, `users/${user.uid}`), { uid: user.uid, email: user.email, status: 'online' });
+        // Update status to online (bina Name/Dept overwrite kiye)
+        update(ref(db, `users/${user.uid}`), { uid: user.uid, email: user.email, status: 'online' });
         onDisconnect(ref(db, `users/${user.uid}/status`)).set('offline');
+
+        // Apni profile detail get karein aur Header mein dikhayein
+        onValue(ref(db, `users/${user.uid}`), (snapshot) => {
+            const data = snapshot.val();
+            if(data && data.name) {
+                myFullName = `${data.name} (${data.department})`;
+                myNameDisplay.innerHTML = `<strong>${data.name}</strong> <br><small>${data.department}</small>`;
+            } else {
+                myFullName = user.email.split('@')[0];
+                myNameDisplay.innerText = myFullName;
+            }
+        }, { onlyOnce: true });
 
         loadUsersList();
         listenForIncomingCalls();
@@ -82,7 +117,7 @@ onAuthStateChanged(auth, (user) => {
     }
 });
 
-// ================= USERS LIST =================
+// ================= USERS LIST (WITH DEPARTMENTS) =================
 function loadUsersList() {
     onValue(ref(db, 'users'), (snapshot) => {
         usersListDiv.innerHTML = '';
@@ -92,16 +127,26 @@ function loadUsersList() {
                 const item = document.createElement('div');
                 item.className = 'user-item';
                 if (selectedUser && selectedUser.uid === u.uid) item.classList.add('active');
+                
                 const statusDot = u.status === 'online' ? '<span class="online-dot"></span>' : '<span class="offline-dot"></span>';
-                item.innerHTML = `<span>${u.email.split('@')[0]}</span> ${statusDot}`;
+                
+                // Name aur Department Format
+                let displayName = "";
+                if(u.name && u.department) {
+                    displayName = `<div><strong>${u.name}</strong><br><small style="color:#666;">${u.department}</small></div>`;
+                } else {
+                    displayName = `<div><strong>${u.email.split('@')[0]}</strong></div>`;
+                }
+
+                item.innerHTML = `${displayName} ${statusDot}`;
 
                 item.onclick = () => {
                     selectedUser = u;
-                    targetUserName.innerText = u.email;
+                    targetUserName.innerText = u.name ? `${u.name} - ${u.department}` : u.email;
                     callButtons.style.display = 'block';
                     chatInputArea.style.display = 'flex';
                     loadMessages();
-                    loadUsersList();
+                    loadUsersList(); // active class refresh karne ke liye
                 };
                 usersListDiv.appendChild(item);
             }
@@ -111,7 +156,7 @@ function loadUsersList() {
 
 function getChatId() { return [currentUser.uid, selectedUser.uid].sort().join('_'); }
 
-// ================= CHAT & FILE DISPLAY =================
+// ================= CHAT & FILE SYSTEM =================
 function loadMessages() {
     const chatId = getChatId();
     onValue(ref(db, `chats/${chatId}`), (snapshot) => {
@@ -149,7 +194,7 @@ document.getElementById('send-btn').addEventListener('click', () => {
     msgInput.value = '';
 });
 
-// ================= IMAGE FULL SCREEN POPUP LOGIC =================
+// IMAGE ZOOM
 messagesDiv.addEventListener('click', (e) => {
     if (e.target.tagName === 'IMG' && e.target.classList.contains('zoomable-image')) {
         showImagePopup(e.target.src);
@@ -159,40 +204,24 @@ messagesDiv.addEventListener('click', (e) => {
 function showImagePopup(imgSrc) {
     const overlay = document.createElement('div');
     overlay.style.position = 'fixed';
-    overlay.style.top = '0';
-    overlay.style.left = '0';
-    overlay.style.width = '100vw';
-    overlay.style.height = '100vh';
+    overlay.style.top = '0'; overlay.style.left = '0';
+    overlay.style.width = '100vw'; overlay.style.height = '100vh';
     overlay.style.backgroundColor = 'rgba(0,0,0,0.85)';
-    overlay.style.display = 'flex';
-    overlay.style.justifyContent = 'center';
-    overlay.style.alignItems = 'center';
-    overlay.style.zIndex = '9999';
-    overlay.style.cursor = 'pointer';
+    overlay.style.display = 'flex'; overlay.style.justifyContent = 'center'; overlay.style.alignItems = 'center';
+    overlay.style.zIndex = '9999'; overlay.style.cursor = 'pointer';
 
     const img = document.createElement('img');
-    img.src = imgSrc;
-    img.style.maxWidth = '90%';
-    img.style.maxHeight = '90%';
-    img.style.borderRadius = '10px';
-    img.style.boxShadow = '0 4px 15px rgba(0,0,0,0.5)';
+    img.src = imgSrc; img.style.maxWidth = '90%'; img.style.maxHeight = '90%'; img.style.borderRadius = '10px';
 
     const closeIcon = document.createElement('div');
-    closeIcon.innerHTML = '✖';
-    closeIcon.style.position = 'absolute';
-    closeIcon.style.top = '20px';
-    closeIcon.style.right = '30px';
-    closeIcon.style.color = 'white';
-    closeIcon.style.fontSize = '30px';
+    closeIcon.innerHTML = '✖'; closeIcon.style.position = 'absolute'; closeIcon.style.top = '20px'; closeIcon.style.right = '30px'; closeIcon.style.color = 'white'; closeIcon.style.fontSize = '30px';
     
-    overlay.appendChild(img);
-    overlay.appendChild(closeIcon);
-    
+    overlay.appendChild(img); overlay.appendChild(closeIcon);
     overlay.onclick = () => document.body.removeChild(overlay);
     document.body.appendChild(overlay);
 }
 
-// ================= 📎 FILE UPLOAD LOGIC (HD IMAGES) =================
+// FILE UPLOAD (HD IMAGES)
 attachBtn.addEventListener('click', () => fileInput.click());
 
 fileInput.addEventListener('change', function(e) {
@@ -205,82 +234,47 @@ fileInput.addEventListener('change', function(e) {
             const img = new Image();
             img.onload = function() {
                 const canvas = document.createElement('canvas');
-                
-                let width = img.width;
-                let height = img.height;
-                
-                // Nayi HD Limit (Text clear parhne ke liye)
-                const MAX_WIDTH = 1500; 
-                const MAX_HEIGHT = 1500;
+                let width = img.width, height = img.height;
+                const MAX_WIDTH = 1500, MAX_HEIGHT = 1500;
 
-                if (width > height) {
-                    if (width > MAX_WIDTH) {
-                        height *= MAX_WIDTH / width;
-                        width = MAX_WIDTH;
-                    }
-                } else {
-                    if (height > MAX_HEIGHT) {
-                        width *= MAX_HEIGHT / height;
-                        height = MAX_HEIGHT;
-                    }
-                }
+                if (width > height) { if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; } } 
+                else { if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; } }
 
-                canvas.width = width;
-                canvas.height = height;
-                
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, width, height);
-                
-                // Quality ko 0.6 se 0.85 kar diya hai HD result ke liye
-                const compressedBase64 = canvas.toDataURL('image/jpeg', 0.85); 
-                sendFileData(compressedBase64, 'image/jpeg', file.name);
+                canvas.width = width; canvas.height = height;
+                canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+                sendFileData(canvas.toDataURL('image/jpeg', 0.85), 'image/jpeg', file.name);
             }
             img.src = event.target.result;
         }
         reader.readAsDataURL(file);
     } 
     else {
-        // Document (PDF, Word) ke liye limit 3MB kar di hai
-        if(file.size > 3 * 1024 * 1024) { 
-            alert('File 3MB se choti honi chahiye.');
-            return;
-        }
+        if(file.size > 3 * 1024 * 1024) { alert('File 3MB se choti honi chahiye.'); return; }
         const reader = new FileReader();
-        reader.onload = function(event) {
-            sendFileData(event.target.result, file.type, file.name);
-        }
+        reader.onload = function(event) { sendFileData(event.target.result, file.type, file.name); }
         reader.readAsDataURL(file);
     }
     e.target.value = ''; 
 });
 
 function sendFileData(base64Data, type, name) {
-    push(ref(db, `chats/${getChatId()}`), {
-        sender: currentUser.uid,
-        text: '', 
-        fileData: base64Data,
-        fileType: type,
-        fileName: name,
-        timestamp: Date.now()
-    });
+    push(ref(db, `chats/${getChatId()}`), { sender: currentUser.uid, text: '', fileData: base64Data, fileType: type, fileName: name, timestamp: Date.now() });
 }
 
-// ================= CALLING SYSTEM (AUDIO & VIDEO) =================
+// ================= CALLING SYSTEM =================
 document.getElementById('audio-call-btn').addEventListener('click', () => startCall(false));
 document.getElementById('video-call-btn').addEventListener('click', () => startCall(true));
 
 async function startCall(isVideo) {
     if (!selectedUser) return;
     callModal.style.display = 'flex';
-    callStatusText.innerText = `Calling ${selectedUser.email.split('@')[0]}...`;
+    callStatusText.innerText = `Calling ${selectedUser.name || selectedUser.email.split('@')[0]}...`;
     acceptCallBtn.style.display = 'none';
 
     try {
         localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: isVideo });
         if (isVideo) localVideo.srcObject = localStream;
-    } catch (e) {
-        alert("Camera/Mic Permission nahi mili"); endCall(); return;
-    }
+    } catch (e) { alert("Camera/Mic Permission nahi mili"); endCall(); return; }
 
     peerConnection = new RTCPeerConnection(servers);
     remoteStream = new MediaStream();
@@ -301,7 +295,12 @@ async function startCall(isVideo) {
     await peerConnection.setLocalDescription(offer);
     set(ref(db, `calls/${currentCallId}/offer`), { type: offer.type, sdp: offer.sdp });
 
-    set(ref(db, `users/${selectedUser.uid}/incomingCall`), { callId: currentCallId, callerEmail: currentUser.email, isVideo: isVideo });
+    // Call ke sath apna mukammal naam bhejein
+    set(ref(db, `users/${selectedUser.uid}/incomingCall`), { 
+        callId: currentCallId, 
+        callerName: myFullName, 
+        isVideo: isVideo 
+    });
 
     onValue(ref(db, `calls/${currentCallId}/answer`), (snapshot) => {
         const data = snapshot.val();
@@ -322,7 +321,7 @@ function listenForIncomingCalls() {
         if (callData) {
             currentCallId = callData.callId;
             callModal.style.display = 'flex';
-            callStatusText.innerText = `Incoming ${callData.isVideo ? 'Video' : 'Audio'} Call from ${callData.callerEmail.split('@')[0]}`;
+            callStatusText.innerText = `Incoming ${callData.isVideo ? 'Video' : 'Audio'} Call from ${callData.callerName}`;
             acceptCallBtn.style.display = 'inline-block';
             acceptCallBtn.onclick = () => acceptIncomingCall(callData);
         }
