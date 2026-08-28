@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chenabcall - Chat & Call</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f4f9; padding: 20px; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 20px; box-shadow: 0 0 10px rgba(0,0,0,0.1); border-radius: 8px; }
+        input, button { padding: 10px; margin: 5px 0; border-radius: 5px; border: 1px solid #ccc; }
+        button { background-color: #28a745; color: white; cursor: pointer; border: none; }
+        button:hover { background-color: #218838; }
+        
+        #app-section { display: none; }
+        .chat-box { height: 200px; border: 1px solid #ddd; overflow-y: scroll; padding: 10px; background: #fafafa; margin-bottom: 10px; }
+        .message { margin-bottom: 8px; padding: 8px; background: #e3f2fd; border-radius: 5px; display: inline-block; width: 100%; }
+        
+        .video-container { display: flex; gap: 10px; margin-top: 20px; }
+        video { width: 100%; max-width: 350px; background: black; border-radius: 8px; border: 2px solid #333; }
+        .call-controls { margin-top: 10px; padding: 10px; background: #eef; border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2 style="text-align: center; color: #333;">📞 Chenabcall Web</h2>
+
+    <!-- LOGIN / REGISTER SECTION -->
+    <div id="auth-section">
+        <h3>1. Login ya Register Karein</h3>
+        <input type="email" id="email" placeholder="Email likhein" required style="width: 95%;"><br>
+        <input type="password" id="password" placeholder="Password likhein" required style="width: 95%;"><br>
+        <button id="login-btn">Login</button>
+        <button id="register-btn" style="background-color: #007bff;">Register</button>
+    </div>
+
+    <!-- MAIN CHAT & CALL SECTION -->
+    <div id="app-section">
+        <p>Aap login hain as: <strong id="user-email-display"></strong> <button id="logout-btn" style="background-color: red; padding: 5px;">Logout</button></p>
+        
+        <hr>
+
+        <!-- CHAT BOX -->
+        <h3>💬 Chat Room</h3>
+        <div class="chat-box" id="messages"></div>
+        <input type="text" id="msg-input" placeholder="Message type karein..." style="width: 75%;">
+        <button id="send-btn">Send</button>
+
+        <hr>
+
+        <!-- VIDEO CALL SECTION -->
+        <h3>📹 Video Call</h3>
+        <div class="call-controls">
+            <button id="create-call-btn">Start Call (ID Banayein)</button>
+            <p>Aapki Call ID: <strong id="call-id-display">Abhi koi call nahi</strong> (Yeh ID dosre user ko dein)</p>
+            
+            <input type="text" id="join-call-input" placeholder="Call ID yahan paste karein">
+            <button id="join-call-btn" style="background-color: #17a2b8;">Join Call</button>
+            <button id="hangup-btn" style="background-color: red; display: none;">End Call</button>
+        </div>
+
+        <div class="video-container">
+            <div>
+                <h4>Aap (Local)</h4>
+                <video id="local-video" autoplay playsinline muted></video>
+            </div>
+            <div>
+                <h4>Dost (Remote)</h4>
+                <video id="remote-video" autoplay playsinline></video>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Firebase script module -->
+<script type="module" src="app.js"></script>
+
+</body>
+</html>
