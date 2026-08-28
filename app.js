@@ -126,13 +126,11 @@ function loadMessages() {
             let content = '';
             if (msg.text) content += `<div>${msg.text}</div>`;
             
-            // Agar file bheji gayi hai
+            // File Rendering
             if (msg.fileData) {
                 if (msg.fileType && msg.fileType.startsWith('image/')) {
-                    // Image render
-                    content += `<img src="${msg.fileData}" alt="shared-image" onclick="window.open('${msg.fileData}', '_blank')">`;
+                    content += `<img src="${msg.fileData}" alt="shared-image" style="max-width: 100%; border-radius: 5px; margin-top: 5px; cursor: pointer;" onclick="window.open('${msg.fileData}', '_blank')">`;
                 } else {
-                    // Document/File download link
                     content += `<div style="margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.05); border-radius: 5px;">
                         📄 <a href="${msg.fileData}" download="${msg.fileName}">Download ${msg.fileName}</a>
                     </div>`;
@@ -146,7 +144,6 @@ function loadMessages() {
     });
 }
 
-// Text Message Send
 document.getElementById('send-btn').addEventListener('click', () => {
     if (!msgInput.value.trim() || !selectedUser) return;
     push(ref(db, `chats/${getChatId()}`), {
@@ -155,22 +152,20 @@ document.getElementById('send-btn').addEventListener('click', () => {
     msgInput.value = '';
 });
 
-// 📎 File Attachment Click
+// ================= 📎 FILE UPLOAD LOGIC =================
 attachBtn.addEventListener('click', () => fileInput.click());
 
-// Handle File Selection (NO STORAGE USED, JUST TEXT DB)
 fileInput.addEventListener('change', function(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Image ko chota (compress) kar ke bhejna taake DB full na ho
     if (file.type.startsWith('image/')) {
         const reader = new FileReader();
         reader.onload = function(event) {
             const img = new Image();
             img.onload = function() {
                 const canvas = document.createElement('canvas');
-                const MAX_WIDTH = 500; // Compress width
+                const MAX_WIDTH = 500; 
                 const scaleSize = MAX_WIDTH / img.width;
                 canvas.width = MAX_WIDTH;
                 canvas.height = img.height * scaleSize;
@@ -178,7 +173,6 @@ fileInput.addEventListener('change', function(e) {
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                 
-                // Convert to compressed Base64
                 const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6); 
                 sendFileData(compressedBase64, 'image/jpeg', file.name);
             }
@@ -186,10 +180,9 @@ fileInput.addEventListener('change', function(e) {
         }
         reader.readAsDataURL(file);
     } 
-    // Documents / PDF ke liye
     else {
-        if(file.size > 2 * 1024 * 1024) { // 2MB Limit
-            alert('Bari files database full kar sakti hain. Bara-e-meharbani 2MB se choti file bhejein.');
+        if(file.size > 2 * 1024 * 1024) { 
+            alert('File 2MB se choti honi chahiye.');
             return;
         }
         const reader = new FileReader();
@@ -198,7 +191,7 @@ fileInput.addEventListener('change', function(e) {
         }
         reader.readAsDataURL(file);
     }
-    e.target.value = ''; // Reset input
+    e.target.value = ''; 
 });
 
 function sendFileData(base64Data, type, name) {
