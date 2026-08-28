@@ -32,7 +32,6 @@ const msgInput = document.getElementById('msg-input');
 const fileInput = document.getElementById('file-input');
 const attachBtn = document.getElementById('attach-btn');
 
-// Call Elements
 const callModal = document.getElementById('call-modal');
 const callStatusText = document.getElementById('call-status-text');
 const acceptCallBtn = document.getElementById('accept-call-btn');
@@ -93,7 +92,6 @@ function loadUsersList() {
                 const item = document.createElement('div');
                 item.className = 'user-item';
                 if (selectedUser && selectedUser.uid === u.uid) item.classList.add('active');
-
                 const statusDot = u.status === 'online' ? '<span class="online-dot"></span>' : '<span class="offline-dot"></span>';
                 item.innerHTML = `<span>${u.email.split('@')[0]}</span> ${statusDot}`;
 
@@ -126,10 +124,10 @@ function loadMessages() {
             let content = '';
             if (msg.text) content += `<div>${msg.text}</div>`;
             
-            // File Rendering
+            // Image bina window.open ke lagayi hai
             if (msg.fileData) {
                 if (msg.fileType && msg.fileType.startsWith('image/')) {
-                    content += `<img src="${msg.fileData}" alt="shared-image" style="max-width: 100%; border-radius: 5px; margin-top: 5px; cursor: pointer;" onclick="window.open('${msg.fileData}', '_blank')">`;
+                    content += `<img src="${msg.fileData}" alt="shared-image" style="max-width: 100%; border-radius: 5px; margin-top: 5px; cursor: pointer;" class="zoomable-image">`;
                 } else {
                     content += `<div style="margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.05); border-radius: 5px;">
                         📄 <a href="${msg.fileData}" download="${msg.fileName}">Download ${msg.fileName}</a>
@@ -151,6 +149,49 @@ document.getElementById('send-btn').addEventListener('click', () => {
     });
     msgInput.value = '';
 });
+
+// ================= IMAGE FULL SCREEN POPUP LOGIC =================
+messagesDiv.addEventListener('click', (e) => {
+    if (e.target.tagName === 'IMG' && e.target.classList.contains('zoomable-image')) {
+        showImagePopup(e.target.src);
+    }
+});
+
+function showImagePopup(imgSrc) {
+    const overlay = document.createElement('div');
+    overlay.style.position = 'fixed';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100vw';
+    overlay.style.height = '100vh';
+    overlay.style.backgroundColor = 'rgba(0,0,0,0.85)';
+    overlay.style.display = 'flex';
+    overlay.style.justifyContent = 'center';
+    overlay.style.alignItems = 'center';
+    overlay.style.zIndex = '9999';
+    overlay.style.cursor = 'pointer';
+
+    const img = document.createElement('img');
+    img.src = imgSrc;
+    img.style.maxWidth = '90%';
+    img.style.maxHeight = '90%';
+    img.style.borderRadius = '10px';
+    img.style.boxShadow = '0 4px 15px rgba(0,0,0,0.5)';
+
+    const closeIcon = document.createElement('div');
+    closeIcon.innerHTML = '✖';
+    closeIcon.style.position = 'absolute';
+    closeIcon.style.top = '20px';
+    closeIcon.style.right = '30px';
+    closeIcon.style.color = 'white';
+    closeIcon.style.fontSize = '30px';
+    
+    overlay.appendChild(img);
+    overlay.appendChild(closeIcon);
+    
+    overlay.onclick = () => document.body.removeChild(overlay);
+    document.body.appendChild(overlay);
+}
 
 // ================= 📎 FILE UPLOAD LOGIC =================
 attachBtn.addEventListener('click', () => fileInput.click());
