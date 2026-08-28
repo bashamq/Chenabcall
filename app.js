@@ -111,7 +111,7 @@ function loadUsersList() {
 
 function getChatId() { return [currentUser.uid, selectedUser.uid].sort().join('_'); }
 
-// ================= CHAT & FILE SYSTEM =================
+// ================= CHAT & FILE DISPLAY =================
 function loadMessages() {
     const chatId = getChatId();
     onValue(ref(db, `chats/${chatId}`), (snapshot) => {
@@ -124,7 +124,6 @@ function loadMessages() {
             let content = '';
             if (msg.text) content += `<div>${msg.text}</div>`;
             
-            // Image bina window.open ke lagayi hai
             if (msg.fileData) {
                 if (msg.fileType && msg.fileType.startsWith('image/')) {
                     content += `<img src="${msg.fileData}" alt="shared-image" style="max-width: 100%; border-radius: 5px; margin-top: 5px; cursor: pointer;" class="zoomable-image">`;
@@ -193,7 +192,7 @@ function showImagePopup(imgSrc) {
     document.body.appendChild(overlay);
 }
 
-// ================= 📎 FILE UPLOAD LOGIC =================
+// ================= 📎 FILE UPLOAD LOGIC (HD IMAGES) =================
 attachBtn.addEventListener('click', () => fileInput.click());
 
 fileInput.addEventListener('change', function(e) {
@@ -206,15 +205,34 @@ fileInput.addEventListener('change', function(e) {
             const img = new Image();
             img.onload = function() {
                 const canvas = document.createElement('canvas');
-                const MAX_WIDTH = 500; 
-                const scaleSize = MAX_WIDTH / img.width;
-                canvas.width = MAX_WIDTH;
-                canvas.height = img.height * scaleSize;
+                
+                let width = img.width;
+                let height = img.height;
+                
+                // Nayi HD Limit (Text clear parhne ke liye)
+                const MAX_WIDTH = 1500; 
+                const MAX_HEIGHT = 1500;
+
+                if (width > height) {
+                    if (width > MAX_WIDTH) {
+                        height *= MAX_WIDTH / width;
+                        width = MAX_WIDTH;
+                    }
+                } else {
+                    if (height > MAX_HEIGHT) {
+                        width *= MAX_HEIGHT / height;
+                        height = MAX_HEIGHT;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
                 
                 const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, width, height);
                 
-                const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6); 
+                // Quality ko 0.6 se 0.85 kar diya hai HD result ke liye
+                const compressedBase64 = canvas.toDataURL('image/jpeg', 0.85); 
                 sendFileData(compressedBase64, 'image/jpeg', file.name);
             }
             img.src = event.target.result;
@@ -222,8 +240,9 @@ fileInput.addEventListener('change', function(e) {
         reader.readAsDataURL(file);
     } 
     else {
-        if(file.size > 2 * 1024 * 1024) { 
-            alert('File 2MB se choti honi chahiye.');
+        // Document (PDF, Word) ke liye limit 3MB kar di hai
+        if(file.size > 3 * 1024 * 1024) { 
+            alert('File 3MB se choti honi chahiye.');
             return;
         }
         const reader = new FileReader();
