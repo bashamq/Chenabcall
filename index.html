@@ -8,23 +8,23 @@
         * { box-sizing: border-box; font-family: Arial, sans-serif; margin: 0; padding: 0; }
         body { background-color: #e5ddd5; display: flex; justify-content: center; align-items: center; height: 100vh; }
         
-        #auth-section { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 320px; text-align: center; }
-        #auth-section input { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 5px; }
-        #auth-section button { width: 100%; padding: 10px; margin-top: 5px; border: none; border-radius: 5px; cursor: pointer; }
+        #auth-section { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 340px; text-align: center; }
+        #auth-section input, #auth-section select { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 5px; outline: none; }
+        #auth-section button { width: 100%; padding: 10px; margin-top: 5px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
         .btn-login { background-color: #075e54; color: white; }
         .btn-reg { background-color: #128c7e; color: white; }
 
         #app-section { display: none; width: 90%; max-width: 1000px; height: 90vh; background: white; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); overflow: hidden; }
         
-        .sidebar { width: 30%; background: #f0f2f5; border-right: 1px solid #ddd; display: flex; flex-direction: column; }
-        .user-header { padding: 15px; background: #075e54; color: white; display: flex; justify-content: space-between; align-items: center; }
+        .sidebar { width: 35%; background: #f0f2f5; border-right: 1px solid #ddd; display: flex; flex-direction: column; }
+        .user-header { padding: 15px; background: #075e54; color: white; display: flex; justify-content: space-between; align-items: center; font-size: 15px; }
         .users-list { flex: 1; overflow-y: auto; }
         .user-item { padding: 12px 15px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
         .user-item:hover, .user-item.active { background: #e9edef; }
         .online-dot { width: 10px; height: 10px; background: #25d366; border-radius: 50%; display: inline-block; }
         .offline-dot { width: 10px; height: 10px; background: #ccc; border-radius: 50%; display: inline-block; }
 
-        .chat-area { width: 70%; display: flex; flex-direction: column; background: #efeae2; }
+        .chat-area { width: 65%; display: flex; flex-direction: column; background: #efeae2; }
         .chat-header { padding: 12px 20px; background: #f0f2f5; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
         .chat-messages { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
         
@@ -57,17 +57,31 @@
 
     <div id="auth-section">
         <h2>Chenabcall</h2>
-        <p style="font-size: 12px; color: #666; margin-bottom: 15px;">Coworker Secure Login</p>
-        <input type="email" id="email" placeholder="Email">
+        <p style="font-size: 12px; color: #666; margin-bottom: 15px;">Coworker Secure Portal</p>
+        
+        <!-- Registration ke naye fields -->
+        <input type="text" id="reg-name" placeholder="Aapka Naam (For Register)">
+        <select id="reg-dept">
+            <option value="">Select Department (For Register)</option>
+            <option value="Management">Management</option>
+            <option value="Machineshop">Machineshop</option>
+            <option value="Foundry">Foundry</option>
+            <option value="Gudam">Gudam</option>
+            <option value="Finishing">Finishing</option>
+        </select>
+        
+        <input type="email" id="email" placeholder="Email Address">
         <input type="password" id="password" placeholder="Password">
+        
         <button id="login-btn" class="btn-login">Login</button>
-        <button id="register-btn" class="btn-reg">Register</button>
+        <button id="register-btn" class="btn-reg">New Register</button>
+        <p style="font-size: 11px; margin-top: 10px; color: #888;">Note: Name aur Department sirf Register ke waqt zaroori hain. Login ke liye sirf Email/Pass chahiye.</p>
     </div>
 
     <div id="app-section">
         <div class="sidebar">
             <div class="user-header">
-                <div><strong id="my-name">User</strong></div>
+                <div id="my-name">User Profile</div>
                 <button id="logout-btn" style="background: transparent; color: white; border: 1px solid white; padding: 4px 8px; border-radius: 4px; cursor: pointer;">Logout</button>
             </div>
             <div class="users-list" id="users-list"></div>
@@ -77,8 +91,8 @@
             <div class="chat-header">
                 <div><h4 id="target-user-name">Select a coworker</h4></div>
                 <div class="call-action-btns" id="call-buttons" style="display: none;">
-                    <button id="audio-call-btn" class="btn-audio">📞 Audio Call</button>
-                    <button id="video-call-btn" class="btn-video">📹 Video Call</button>
+                    <button id="audio-call-btn" class="btn-audio">📞 Audio</button>
+                    <button id="video-call-btn" class="btn-video">📹 Video</button>
                 </div>
             </div>
 
@@ -87,7 +101,6 @@
             </div>
 
             <div class="chat-input" id="chat-input-area" style="display: none;">
-                <!-- Hidden file input -->
                 <input type="file" id="file-input" style="display: none;" accept="image/*, .pdf, .txt, .zip, .doc">
                 <button id="attach-btn" title="Share File/Image">📎</button>
                 
@@ -110,7 +123,7 @@
         </div>
     </div>
 
-    <!-- v=3 lagaya gaya hai taake browser naya HD wala code download kare -->
-    <script type="module" src="app.js?v=3"></script>
+    <!-- v=4 lagaya gaya hai taake browser naya form update kar le -->
+    <script type="module" src="app.js?v=4"></script>
 </body>
 </html>
