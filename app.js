@@ -1,9 +1,8 @@
-// Firebase Imports
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-import { getDatabase, ref, push, onChildAdded, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+import { getDatabase, ref, set, push, onChildAdded, onValue, update, remove, onDisconnect } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-// ====== AAPKA FIREBASE CONFIG ADD KAR DIYA HAI ======
+// ====== AAPKA FIREBASE CONFIG ======
 const firebaseConfig = {
   apiKey: "AIzaSyCjOP1sVNRCa3byVzDf0MXG4OGGPLXf4DI",
   authDomain: "chenabcall.firebaseapp.com",
@@ -13,29 +12,50 @@ const firebaseConfig = {
   appId: "1:493814518178:web:4e661c0a791a35b09c62fb",
   measurementId: "G-534MHSRCJD"
 };
-// ======================================================
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
 
-// HTML Elements ko get karna
+// DOM Elements
 const authSection = document.getElementById('auth-section');
 const appSection = document.getElementById('app-section');
 const emailInput = document.getElementById('email');
 const passInput = document.getElementById('password');
-const userEmailDisplay = document.getElementById('user-email-display');
+const myNameDisplay = document.getElementById('my-name');
+const usersListDiv = document.getElementById('users-list');
+const targetUserName = document.getElementById('target-user-name');
+const callButtons = document.getElementById('call-buttons');
+const chatInputArea = document.getElementById('chat-input-area');
 const messagesDiv = document.getElementById('messages');
 const msgInput = document.getElementById('msg-input');
 
+// Call Elements
+const callModal = document.getElementById('call-modal');
+const callStatusText = document.getElementById('call-status-text');
+const acceptCallBtn = document.getElementById('accept-call-btn');
+const hangupCallBtn = document.getElementById('hangup-call-btn');
+const localVideo = document.getElementById('local-video');
+const remoteVideo = document.getElementById('remote-video');
+const remoteAudio = document.getElementById('remote-audio');
+
 let currentUser = null;
+let selectedUser = null;
+let activeChatListener = null;
 
-// ================= 1. AUTHENTICATION (LOGIN/REGISTER) =================
+// WebRTC Variables
+let peerConnection = null;
+let localStream = null;
+let remoteStream = null;
+let currentCallId = null;
 
+const servers = {
+    iceServers: [{ urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }]
+};
+
+// ================= AUTHENTICATION & USER STATUS =================
 document.getElementById('register-btn').addEventListener('click', () => {
     createUserWithEmailAndPassword(auth, emailInput.value, passInput.value)
-        .then(() => alert("Account ban gaya! Ab aap automatically login ho jayenge."))
         .catch(err => alert("Error: " + err.message));
 });
 
@@ -45,17 +65,30 @@ document.getElementById('login-btn').addEventListener('click', () => {
 });
 
 document.getElementById('logout-btn').addEventListener('click', () => {
+    if (currentUser) {
+        set(ref(db, `users/${currentUser.uid}/status`), 'offline');
+    }
     signOut(auth);
 });
 
-// Check karna ke user login hai ya nahi
 onAuthStateChanged(auth, (user) => {
     if (user) {
         currentUser = user;
         authSection.style.display = 'none';
-        appSection.style.display = 'block';
-        userEmailDisplay.innerText = user.email;
-        setupCamera(); // Login hotay hi camera on karna
+        appSection.style.display = 'flex';
+        myNameDisplay.innerText = user.email.split('@')[0];
+
+        // Save status in DB
+        const userRef = ref(db, `users/${user.uid}`);
+        set(userRef, {
+            uid: user.uid,
+            email: user.email,
+            status: 'online'
+        });
+        onDisconnect(ref(db, `users/${user.uid}/status`)).set('offline');
+
+        loadUsersList();
+        listenForIncomingCalls();
     } else {
         currentUser = null;
         authSection.style.display = 'block';
@@ -63,159 +96,203 @@ onAuthStateChanged(auth, (user) => {
     }
 });
 
-// ================= 2. CHAT SYSTEM =================
+// ================= USERS LIST & SELECTION =================
+function loadUsersList() {
+    onValue(ref(db, 'users'), (snapshot) => {
+        usersListDiv.innerHTML = '';
+        snapshot.forEach((child) => {
+            const u = child.val();
+            if (u.uid !== currentUser.uid) {
+                const item = document.createElement('div');
+                item.className = 'user-item';
+                if (selectedUser && selectedUser.uid === u.uid) item.classList.add('active');
+
+                const statusDot = u.status === 'online' ? '<span class="online-dot"></span>' : '<span class="offline-dot"></span>';
+                item.innerHTML = `<span>${u.email.split('@')[0]}</span> ${statusDot}`;
+
+                item.onclick = () => selectUser(u);
+                usersListDiv.appendChild(item);
+            }
+        });
+    });
+}
+
+function selectUser(user) {
+    selectedUser = user;
+    targetUserName.innerText = user.email;
+    callButtons.style.display = 'block';
+    chatInputArea.style.display = 'flex';
+    loadMessages();
+    loadUsersList(); // Update highlight
+}
+
+// ================= 1-ON-1 CHAT SYSTEM =================
+function getChatId() {
+    return [currentUser.uid, selectedUser.uid].sort().join('_');
+}
+
+function loadMessages() {
+    messagesDiv.innerHTML = '';
+    const chatId = getChatId();
+    
+    onValue(ref(db, `chats/${chatId}`), (snapshot) => {
+        messagesDiv.innerHTML = '';
+        snapshot.forEach((child) => {
+            const msg = child.val();
+            const msgEl = document.createElement('div');
+            msgEl.className = 'message-bubble ' + (msg.sender === currentUser.uid ? 'msg-mine' : 'msg-other');
+            msgEl.innerText = msg.text;
+            messagesDiv.appendChild(msgEl);
+        });
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    });
+}
 
 document.getElementById('send-btn').addEventListener('click', () => {
-    if (msgInput.value.trim() === "") return;
-    push(ref(db, 'messages'), {
-        sender: currentUser.email,
+    if (!msgInput.value.trim() || !selectedUser) return;
+    const chatId = getChatId();
+    push(ref(db, `chats/${chatId}`), {
+        sender: currentUser.uid,
         text: msgInput.value,
         timestamp: Date.now()
     });
-    msgInput.value = ""; 
+    msgInput.value = '';
 });
 
-// Realtime Messages Show karna
-onChildAdded(ref(db, 'messages'), (snapshot) => {
-    const data = snapshot.val();
-    const msgElement = document.createElement('div');
-    msgElement.className = 'message';
-    msgElement.innerHTML = `<strong>${data.sender.split('@')[0]}:</strong> ${data.text}`;
-    messagesDiv.appendChild(msgElement);
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-});
+// ================= DIRECT CALLING (AUDIO & VIDEO) =================
+document.getElementById('audio-call-btn').addEventListener('click', () => startCall(false));
+document.getElementById('video-call-btn').addEventListener('click', () => startCall(true));
 
-// ================= 3. VIDEO CALLING (WebRTC) =================
+async function startCall(isVideo) {
+    if (!selectedUser) return;
+    callModal.style.display = 'flex';
+    callStatusText.innerText = `Calling ${selectedUser.email.split('@')[0]}...`;
+    acceptCallBtn.style.display = 'none';
 
-const localVideo = document.getElementById('local-video');
-const remoteVideo = document.getElementById('remote-video');
-const callIdDisplay = document.getElementById('call-id-display');
-let localStream = null;
-let remoteStream = null;
-let peerConnection = null;
-
-const servers = {
-    iceServers: [
-        { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] } // Free Google STUN Servers
-    ]
-};
-
-// Camera aur Mic ki permission lena
-async function setupCamera() {
     try {
-        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        localVideo.srcObject = localStream;
-    } catch (error) {
-        alert("Camera ya Mic ki permission nahi mili: " + error.message);
-    }
-}
-
-// ----------------- CALL START KARNA (Creator) -----------------
-document.getElementById('create-call-btn').addEventListener('click', async () => {
-    peerConnection = new RTCPeerConnection(servers);
-    remoteStream = new MediaStream();
-    remoteVideo.srcObject = remoteStream;
-
-    // Apna video track connection me dalna
-    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-    // Doosre user ka video track aane par screen pe dikhana
-    peerConnection.ontrack = event => {
-        event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
-    };
-
-    // Firebase me call ki jagah (ID) banana
-    const callDocRef = push(ref(db, 'calls'));
-    const callId = callDocRef.key;
-    callIdDisplay.innerText = callId; // Yeh ID user ko screen par dikhegi
-    document.getElementById('hangup-btn').style.display = 'inline-block';
-
-    // ICE Candidates jama karna (Network connection info)
-    peerConnection.onicecandidate = event => {
-        if (event.candidate) {
-            push(ref(db, `calls/${callId}/callerCandidates`), event.candidate.toJSON());
-        }
-    };
-
-    // Offer banakar Firebase me save karna
-    const offerDescription = await peerConnection.createOffer();
-    await peerConnection.setLocalDescription(offerDescription);
-    
-    set(ref(db, `calls/${callId}/offer`), {
-        type: offerDescription.type,
-        sdp: offerDescription.sdp
-    });
-
-    // Jab receiver answer kare, toh usey set karna
-    onValue(ref(db, `calls/${callId}/answer`), (snapshot) => {
-        const data = snapshot.val();
-        if (!peerConnection.currentRemoteDescription && data) {
-            const answerDescription = new RTCSessionDescription(data);
-            peerConnection.setRemoteDescription(answerDescription);
-        }
-    });
-
-    // Receiver ke ICE candidates aane par network connect karna
-    onChildAdded(ref(db, `calls/${callId}/calleeCandidates`), (snapshot) => {
-        const candidate = new RTCIceCandidate(snapshot.val());
-        peerConnection.addIceCandidate(candidate);
-    });
-});
-
-// ----------------- CALL JOIN KARNA (Receiver) -----------------
-document.getElementById('join-call-btn').addEventListener('click', async () => {
-    const callId = document.getElementById('join-call-input').value;
-    if (!callId) {
-        alert("Pehle Call ID likhein!");
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: isVideo });
+        if (isVideo) localVideo.srcObject = localStream;
+    } catch (e) {
+        alert("Camera/Mic Permission nahi mili: " + e.message);
+        endCall();
         return;
     }
 
     peerConnection = new RTCPeerConnection(servers);
     remoteStream = new MediaStream();
-    remoteVideo.srcObject = remoteStream;
+    if (isVideo) remoteVideo.srcObject = remoteStream;
+    else remoteAudio.srcObject = remoteStream;
 
     localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-    peerConnection.ontrack = event => {
+    peerConnection.ontrack = (event) => {
         event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
     };
 
-    peerConnection.onicecandidate = event => {
-        if (event.candidate) {
-            push(ref(db, `calls/${callId}/calleeCandidates`), event.candidate.toJSON());
-        }
+    const callRef = push(ref(db, 'calls'));
+    currentCallId = callRef.key;
+
+    peerConnection.onicecandidate = (e) => {
+        if (e.candidate) push(ref(db, `calls/${currentCallId}/callerCandidates`), e.candidate.toJSON());
     };
 
-    // Firebase se Offer uthana aur Answer bhejna
-    onValue(ref(db, `calls/${callId}/offer`), async (snapshot) => {
-        const offerData = snapshot.val();
-        if (offerData) {
-            const offerDescription = new RTCSessionDescription(offerData);
-            await peerConnection.setRemoteDescription(offerDescription);
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
 
-            const answerDescription = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answerDescription);
+    set(ref(db, `calls/${currentCallId}/offer`), { type: offer.type, sdp: offer.sdp });
 
-            set(ref(db, `calls/${callId}/answer`), {
-                type: answerDescription.type,
-                sdp: answerDescription.sdp
-            });
+    // Send Call Signal to Receiver
+    set(ref(db, `users/${selectedUser.uid}/incomingCall`), {
+        callId: currentCallId,
+        callerEmail: currentUser.email,
+        isVideo: isVideo
+    });
+
+    // Listen for answer
+    onValue(ref(db, `calls/${currentCallId}/answer`), (snapshot) => {
+        const data = snapshot.val();
+        if (data && !peerConnection.currentRemoteDescription) {
+            callStatusText.innerText = "Connected";
+            peerConnection.setRemoteDescription(new RTCSessionDescription(data));
+        }
+    });
+
+    onChildAdded(ref(db, `calls/${currentCallId}/calleeCandidates`), (snapshot) => {
+        peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val()));
+    });
+}
+
+// ================= INCOMING CALL LISTENER =================
+function listenForIncomingCalls() {
+    onValue(ref(db, `users/${currentUser.uid}/incomingCall`), (snapshot) => {
+        const callData = snapshot.val();
+        if (callData) {
+            currentCallId = callData.callId;
+            callModal.style.display = 'flex';
+            callStatusText.innerText = `Incoming ${callData.isVideo ? 'Video' : 'Audio'} Call from ${callData.callerEmail.split('@')[0]}`;
+            acceptCallBtn.style.display = 'inline-block';
+
+            acceptCallBtn.onclick = () => acceptIncomingCall(callData);
+        }
+    });
+}
+
+async function acceptIncomingCall(callData) {
+    acceptCallBtn.style.display = 'none';
+    callStatusText.innerText = "Connecting...";
+
+    try {
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: callData.isVideo });
+        if (callData.isVideo) localVideo.srcObject = localStream;
+    } catch (e) {
+        alert("Camera/Mic Permission Error");
+        endCall();
+        return;
+    }
+
+    peerConnection = new RTCPeerConnection(servers);
+    remoteStream = new MediaStream();
+    if (callData.isVideo) remoteVideo.srcObject = remoteStream;
+    else remoteAudio.srcObject = remoteStream;
+
+    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+    peerConnection.ontrack = (e) => {
+        e.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
+    };
+
+    peerConnection.onicecandidate = (e) => {
+        if (e.candidate) push(ref(db, `calls/${currentCallId}/calleeCandidates`), e.candidate.toJSON());
+    };
+
+    onValue(ref(db, `calls/${currentCallId}/offer`), async (snapshot) => {
+        const offer = snapshot.val();
+        if (offer) {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            set(ref(db, `calls/${currentCallId}/answer`), { type: answer.type, sdp: answer.sdp });
+            callStatusText.innerText = "Connected";
         }
     }, { onlyOnce: true });
 
-    // Caller ke ICE candidates receive karna
-    onChildAdded(ref(db, `calls/${callId}/callerCandidates`), (snapshot) => {
-        const candidate = new RTCIceCandidate(snapshot.val());
-        peerConnection.addIceCandidate(candidate);
+    onChildAdded(ref(db, `calls/${currentCallId}/callerCandidates`), (snapshot) => {
+        peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val()));
     });
-    
-    document.getElementById('hangup-btn').style.display = 'inline-block';
-});
 
-// ----------------- CALL KHATAM KARNA (Hangup) -----------------
-document.getElementById('hangup-btn').addEventListener('click', () => {
-    if(peerConnection) peerConnection.close();
-    remoteVideo.srcObject = null;
-    document.getElementById('hangup-btn').style.display = 'none';
-    callIdDisplay.innerText = "Abhi koi call nahi";
-});
+    // Clear incoming notification
+    remove(ref(db, `users/${currentUser.uid}/incomingCall`));
+}
+
+// ================= END CALL =================
+hangupCallBtn.addEventListener('click', endCall);
+
+function endCall() {
+    if (peerConnection) peerConnection.close();
+    if (localStream) localStream.getTracks().forEach(t => t.stop());
+    callModal.style.display = 'none';
+    if (currentUser) remove(ref(db, `users/${currentUser.uid}/incomingCall`));
+    if (currentCallId) remove(ref(db, `calls/${currentCallId}`));
+    currentCallId = null;
+    peerConnection = null;
+}
