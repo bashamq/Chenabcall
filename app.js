@@ -29,6 +29,8 @@ const callButtons = document.getElementById('call-buttons');
 const chatInputArea = document.getElementById('chat-input-area');
 const messagesDiv = document.getElementById('messages');
 const msgInput = document.getElementById('msg-input');
+const fileInput = document.getElementById('file-input');
+const attachBtn = document.getElementById('attach-btn');
 
 // Call Elements
 const callModal = document.getElementById('call-modal');
@@ -41,33 +43,24 @@ const remoteAudio = document.getElementById('remote-audio');
 
 let currentUser = null;
 let selectedUser = null;
-let activeChatListener = null;
-
-// WebRTC Variables
 let peerConnection = null;
 let localStream = null;
 let remoteStream = null;
 let currentCallId = null;
 
-const servers = {
-    iceServers: [{ urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }]
-};
+const servers = { iceServers: [{ urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }] };
 
-// ================= AUTHENTICATION & USER STATUS =================
+// ================= AUTHENTICATION =================
 document.getElementById('register-btn').addEventListener('click', () => {
-    createUserWithEmailAndPassword(auth, emailInput.value, passInput.value)
-        .catch(err => alert("Error: " + err.message));
+    createUserWithEmailAndPassword(auth, emailInput.value, passInput.value).catch(err => alert("Error: " + err.message));
 });
 
 document.getElementById('login-btn').addEventListener('click', () => {
-    signInWithEmailAndPassword(auth, emailInput.value, passInput.value)
-        .catch(err => alert("Error: " + err.message));
+    signInWithEmailAndPassword(auth, emailInput.value, passInput.value).catch(err => alert("Error: " + err.message));
 });
 
 document.getElementById('logout-btn').addEventListener('click', () => {
-    if (currentUser) {
-        set(ref(db, `users/${currentUser.uid}/status`), 'offline');
-    }
+    if (currentUser) set(ref(db, `users/${currentUser.uid}/status`), 'offline');
     signOut(auth);
 });
 
@@ -78,13 +71,7 @@ onAuthStateChanged(auth, (user) => {
         appSection.style.display = 'flex';
         myNameDisplay.innerText = user.email.split('@')[0];
 
-        // Save status in DB
-        const userRef = ref(db, `users/${user.uid}`);
-        set(userRef, {
-            uid: user.uid,
-            email: user.email,
-            status: 'online'
-        });
+        set(ref(db, `users/${user.uid}`), { uid: user.uid, email: user.email, status: 'online' });
         onDisconnect(ref(db, `users/${user.uid}/status`)).set('offline');
 
         loadUsersList();
@@ -96,7 +83,7 @@ onAuthStateChanged(auth, (user) => {
     }
 });
 
-// ================= USERS LIST & SELECTION =================
+// ================= USERS LIST =================
 function loadUsersList() {
     onValue(ref(db, 'users'), (snapshot) => {
         usersListDiv.innerHTML = '';
@@ -110,56 +97,122 @@ function loadUsersList() {
                 const statusDot = u.status === 'online' ? '<span class="online-dot"></span>' : '<span class="offline-dot"></span>';
                 item.innerHTML = `<span>${u.email.split('@')[0]}</span> ${statusDot}`;
 
-                item.onclick = () => selectUser(u);
+                item.onclick = () => {
+                    selectedUser = u;
+                    targetUserName.innerText = u.email;
+                    callButtons.style.display = 'block';
+                    chatInputArea.style.display = 'flex';
+                    loadMessages();
+                    loadUsersList();
+                };
                 usersListDiv.appendChild(item);
             }
         });
     });
 }
 
-function selectUser(user) {
-    selectedUser = user;
-    targetUserName.innerText = user.email;
-    callButtons.style.display = 'block';
-    chatInputArea.style.display = 'flex';
-    loadMessages();
-    loadUsersList(); // Update highlight
-}
+function getChatId() { return [currentUser.uid, selectedUser.uid].sort().join('_'); }
 
-// ================= 1-ON-1 CHAT SYSTEM =================
-function getChatId() {
-    return [currentUser.uid, selectedUser.uid].sort().join('_');
-}
-
+// ================= CHAT & FILE SYSTEM =================
 function loadMessages() {
-    messagesDiv.innerHTML = '';
     const chatId = getChatId();
-    
     onValue(ref(db, `chats/${chatId}`), (snapshot) => {
         messagesDiv.innerHTML = '';
         snapshot.forEach((child) => {
             const msg = child.val();
             const msgEl = document.createElement('div');
             msgEl.className = 'message-bubble ' + (msg.sender === currentUser.uid ? 'msg-mine' : 'msg-other');
-            msgEl.innerText = msg.text;
+            
+            let content = '';
+            if (msg.text) content += `<div>${msg.text}</div>`;
+            
+            // Agar file bheji gayi hai
+            if (msg.fileData) {
+                if (msg.fileType && msg.fileType.startsWith('image/')) {
+                    // Image render
+                    content += `<img src="${msg.fileData}" alt="shared-image" onclick="window.open('${msg.fileData}', '_blank')">`;
+                } else {
+                    // Document/File download link
+                    content += `<div style="margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.05); border-radius: 5px;">
+                        📄 <a href="${msg.fileData}" download="${msg.fileName}">Download ${msg.fileName}</a>
+                    </div>`;
+                }
+            }
+            
+            msgEl.innerHTML = content;
             messagesDiv.appendChild(msgEl);
         });
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
     });
 }
 
+// Text Message Send
 document.getElementById('send-btn').addEventListener('click', () => {
     if (!msgInput.value.trim() || !selectedUser) return;
-    const chatId = getChatId();
-    push(ref(db, `chats/${chatId}`), {
-        sender: currentUser.uid,
-        text: msgInput.value,
-        timestamp: Date.now()
+    push(ref(db, `chats/${getChatId()}`), {
+        sender: currentUser.uid, text: msgInput.value, timestamp: Date.now()
     });
     msgInput.value = '';
 });
 
-// ================= DIRECT CALLING (AUDIO & VIDEO) =================
+// 📎 File Attachment Click
+attachBtn.addEventListener('click', () => fileInput.click());
+
+// Handle File Selection (NO STORAGE USED, JUST TEXT DB)
+fileInput.addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Image ko chota (compress) kar ke bhejna taake DB full na ho
+    if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            const img = new Image();
+            img.onload = function() {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 500; // Compress width
+                const scaleSize = MAX_WIDTH / img.width;
+                canvas.width = MAX_WIDTH;
+                canvas.height = img.height * scaleSize;
+                
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                
+                // Convert to compressed Base64
+                const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6); 
+                sendFileData(compressedBase64, 'image/jpeg', file.name);
+            }
+            img.src = event.target.result;
+        }
+        reader.readAsDataURL(file);
+    } 
+    // Documents / PDF ke liye
+    else {
+        if(file.size > 2 * 1024 * 1024) { // 2MB Limit
+            alert('Bari files database full kar sakti hain. Bara-e-meharbani 2MB se choti file bhejein.');
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            sendFileData(event.target.result, file.type, file.name);
+        }
+        reader.readAsDataURL(file);
+    }
+    e.target.value = ''; // Reset input
+});
+
+function sendFileData(base64Data, type, name) {
+    push(ref(db, `chats/${getChatId()}`), {
+        sender: currentUser.uid,
+        text: '', 
+        fileData: base64Data,
+        fileType: type,
+        fileName: name,
+        timestamp: Date.now()
+    });
+}
+
+// ================= CALLING SYSTEM (AUDIO & VIDEO) =================
 document.getElementById('audio-call-btn').addEventListener('click', () => startCall(false));
 document.getElementById('video-call-btn').addEventListener('click', () => startCall(true));
 
@@ -173,9 +226,7 @@ async function startCall(isVideo) {
         localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: isVideo });
         if (isVideo) localVideo.srcObject = localStream;
     } catch (e) {
-        alert("Camera/Mic Permission nahi mili: " + e.message);
-        endCall();
-        return;
+        alert("Camera/Mic Permission nahi mili"); endCall(); return;
     }
 
     peerConnection = new RTCPeerConnection(servers);
@@ -184,10 +235,7 @@ async function startCall(isVideo) {
     else remoteAudio.srcObject = remoteStream;
 
     localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-    peerConnection.ontrack = (event) => {
-        event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
-    };
+    peerConnection.ontrack = (event) => event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
 
     const callRef = push(ref(db, 'calls'));
     currentCallId = callRef.key;
@@ -198,17 +246,10 @@ async function startCall(isVideo) {
 
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
-
     set(ref(db, `calls/${currentCallId}/offer`), { type: offer.type, sdp: offer.sdp });
 
-    // Send Call Signal to Receiver
-    set(ref(db, `users/${selectedUser.uid}/incomingCall`), {
-        callId: currentCallId,
-        callerEmail: currentUser.email,
-        isVideo: isVideo
-    });
+    set(ref(db, `users/${selectedUser.uid}/incomingCall`), { callId: currentCallId, callerEmail: currentUser.email, isVideo: isVideo });
 
-    // Listen for answer
     onValue(ref(db, `calls/${currentCallId}/answer`), (snapshot) => {
         const data = snapshot.val();
         if (data && !peerConnection.currentRemoteDescription) {
@@ -222,7 +263,6 @@ async function startCall(isVideo) {
     });
 }
 
-// ================= INCOMING CALL LISTENER =================
 function listenForIncomingCalls() {
     onValue(ref(db, `users/${currentUser.uid}/incomingCall`), (snapshot) => {
         const callData = snapshot.val();
@@ -231,7 +271,6 @@ function listenForIncomingCalls() {
             callModal.style.display = 'flex';
             callStatusText.innerText = `Incoming ${callData.isVideo ? 'Video' : 'Audio'} Call from ${callData.callerEmail.split('@')[0]}`;
             acceptCallBtn.style.display = 'inline-block';
-
             acceptCallBtn.onclick = () => acceptIncomingCall(callData);
         }
     });
@@ -240,15 +279,10 @@ function listenForIncomingCalls() {
 async function acceptIncomingCall(callData) {
     acceptCallBtn.style.display = 'none';
     callStatusText.innerText = "Connecting...";
-
     try {
         localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: callData.isVideo });
         if (callData.isVideo) localVideo.srcObject = localStream;
-    } catch (e) {
-        alert("Camera/Mic Permission Error");
-        endCall();
-        return;
-    }
+    } catch (e) { endCall(); return; }
 
     peerConnection = new RTCPeerConnection(servers);
     remoteStream = new MediaStream();
@@ -256,10 +290,7 @@ async function acceptIncomingCall(callData) {
     else remoteAudio.srcObject = remoteStream;
 
     localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-    peerConnection.ontrack = (e) => {
-        e.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
-    };
+    peerConnection.ontrack = (e) => e.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
 
     peerConnection.onicecandidate = (e) => {
         if (e.candidate) push(ref(db, `calls/${currentCallId}/calleeCandidates`), e.candidate.toJSON());
@@ -279,20 +310,15 @@ async function acceptIncomingCall(callData) {
     onChildAdded(ref(db, `calls/${currentCallId}/callerCandidates`), (snapshot) => {
         peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val()));
     });
-
-    // Clear incoming notification
     remove(ref(db, `users/${currentUser.uid}/incomingCall`));
 }
 
-// ================= END CALL =================
 hangupCallBtn.addEventListener('click', endCall);
-
 function endCall() {
     if (peerConnection) peerConnection.close();
     if (localStream) localStream.getTracks().forEach(t => t.stop());
     callModal.style.display = 'none';
     if (currentUser) remove(ref(db, `users/${currentUser.uid}/incomingCall`));
     if (currentCallId) remove(ref(db, `calls/${currentCallId}`));
-    currentCallId = null;
-    peerConnection = null;
+    currentCallId = null; peerConnection = null;
 }
