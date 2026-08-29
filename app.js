@@ -19,7 +19,7 @@ const db = getDatabase(app);
 
 // EMAILJS SETUP (APNI PUBLIC KEY YAHAN REPLACE KAREIN)
 (function() {
-    emailjs.init("YOUR_EMAILJS_PUBLIC_KEY"); // EmailJS Public Key yahan lagayein
+    emailjs.init("CPy8DRdtRywJozXJR"); // EmailJS Public Key yahan lagayein
 })();
 
 // DOM Elements
@@ -246,7 +246,7 @@ sendMeetingBtn.addEventListener('click', async () => {
         };
 
         // Agar EmailJS Service & Template ID configured hain
-        emailjs.send('YOUR_SERVICE_ID', 'YOUR_TEMPLATE_ID', templateParams)
+        emailjs.send('service_nzjlttn', 'template_ul2r6c8', templateParams)
             .then(() => console.log('Email sent to ' + userEmail))
             .catch(err => console.log('Email Error: ', err));
     });
