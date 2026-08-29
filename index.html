@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chenabcall - Chat, Call & Share</title>
+    <title>Chenabcall - Professional Portal</title>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
     <style>
         * { box-sizing: border-box; font-family: Arial, sans-serif; margin: 0; padding: 0; }
         body { background-color: #e5ddd5; display: flex; justify-content: center; align-items: center; height: 100vh; }
@@ -14,10 +15,12 @@
         .btn-login { background-color: #075e54; color: white; }
         .btn-reg { background-color: #128c7e; color: white; }
 
-        #app-section { display: none; width: 90%; max-width: 1000px; height: 90vh; background: white; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); overflow: hidden; }
+        #app-section { display: none; width: 95%; max-width: 1100px; height: 90vh; background: white; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); overflow: hidden; }
         
         .sidebar { width: 35%; background: #f0f2f5; border-right: 1px solid #ddd; display: flex; flex-direction: column; }
         .user-header { padding: 15px; background: #075e54; color: white; display: flex; justify-content: space-between; align-items: center; font-size: 15px; }
+        .schedule-btn { background: #128c7e; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; font-weight: bold; margin: 10px; }
+        
         .users-list { flex: 1; overflow-y: auto; }
         .user-item { padding: 12px 15px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
         .user-item:hover, .user-item.active { background: #e9edef; }
@@ -32,8 +35,6 @@
         .msg-mine { background: #d9fdd3; align-self: flex-end; }
         .msg-other { background: white; align-self: flex-start; }
         .message-bubble img { max-width: 250px; border-radius: 5px; margin-top: 5px; display: block; }
-        .message-bubble a { color: #0275d8; text-decoration: none; font-weight: bold; }
-        .message-bubble a:hover { text-decoration: underline; }
 
         .chat-input { padding: 10px; background: #f0f2f5; display: flex; gap: 10px; align-items: center; }
         .chat-input input[type="text"] { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 20px; outline: none; }
@@ -45,40 +46,39 @@
         .btn-audio { background: #007bff; color: white; }
         .btn-video { background: #28a745; color: white; }
 
+        /* MODAL STYLING (Meeting Form & Meeting Room) */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; z-index: 2000; }
+        .modal-card { background: white; width: 90%; max-width: 500px; padding: 25px; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.3); }
+        .modal-card h3 { margin-bottom: 15px; color: #075e54; }
+        .modal-card label { display: block; font-size: 13px; font-weight: bold; margin-top: 10px; color: #333; }
+        .modal-card input, .modal-card select, .modal-card textarea { width: 100%; padding: 9px; margin-top: 4px; border: 1px solid #ccc; border-radius: 5px; outline: none; }
+        .modal-card textarea { height: 70px; resize: none; }
+        .modal-btns { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+        .btn-cancel { background: #888; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; }
+        .btn-submit { background: #075e54; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; }
 
-        /* ================= WHATSAPP STYLE VIDEO CALL ================= */
-        .call-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; color: white; justify-content: center; align-items: center; flex-direction: column; z-index: 1000; }
-        
-        /* Video Container jisme dono videos hongi */
-        .video-box { position: relative; width: 100%; max-width: 900px; height: 80vh; background: #222; border-radius: 15px; overflow: hidden; display: flex; justify-content: center; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        
-        /* Remote Video (Doosre bande ki Bari Screen) */
-        #remote-video { width: 100%; height: 100%; object-fit: cover; }
-        
-        /* Local Video (Apni Choti Screen Floating) */
-        #local-video { position: absolute; bottom: 20px; right: 20px; width: 140px; height: 180px; object-fit: cover; border: 2px solid #fff; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); z-index: 10; background: #000; }
-        
-        .call-btns { display: flex; gap: 15px; margin-top: 20px; z-index: 20; }
-        .btn-call { padding: 12px 30px; border: none; border-radius: 30px; cursor: pointer; color: white; font-weight: bold; font-size: 16px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); transition: 0.3s; }
-        .btn-call:hover { transform: scale(1.05); }
+        /* PROFESSIONAL MULTI-USER MEETING ROOM */
+        .meeting-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #1a1a1a; flex-direction: column; z-index: 3000; }
+        .meeting-header { padding: 15px 25px; background: #252525; color: white; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
+        .video-grid { flex: 1; padding: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; overflow-y: auto; justify-items: center; align-items: center; }
+        .video-wrapper { position: relative; width: 100%; height: 230px; background: #000; border-radius: 10px; overflow: hidden; border: 2px solid #333; }
+        .video-wrapper video { width: 100%; height: 100%; object-fit: cover; }
+        .video-wrapper .user-label { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.6); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+
+        .meeting-controls { padding: 15px; background: #252525; display: flex; justify-content: center; gap: 15px; border-top: 1px solid #333; }
+        .ctrl-btn { width: 50px; height: 50px; border-radius: 50%; border: none; cursor: pointer; font-size: 18px; color: white; display: flex; justify-content: center; align-items: center; }
+        .btn-mic-on { background: #333; }
+        .btn-mic-off { background: #ea4335; }
+        .btn-cam-on { background: #333; }
+        .btn-cam-off { background: #ea4335; }
+        .btn-leave { background: #ea4335; width: 60px; border-radius: 25px; font-size: 14px; font-weight: bold; }
+
+        /* Incoming Call Notification */
+        .call-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); color: white; justify-content: center; align-items: center; flex-direction: column; z-index: 1000; }
+        .call-btns { display: flex; gap: 15px; margin-top: 20px; }
+        .btn-call { padding: 12px 30px; border: none; border-radius: 30px; cursor: pointer; color: white; font-weight: bold; font-size: 16px; }
         .btn-accept { background-color: #25d366; }
         .btn-reject { background-color: #ea4335; }
-
-        #call-status-text { margin-bottom: 15px; font-size: 18px; z-index: 20; }
-
-        /* ================= MOBILE PHONES KE LIYE ================= */
-        @media (max-width: 768px) {
-            /* Mobile me chat app ka size */
-            #app-section { width: 100%; height: 100vh; border-radius: 0; flex-direction: column; }
-            .sidebar { width: 100%; height: 35%; border-right: none; border-bottom: 1px solid #ddd; }
-            .chat-area { width: 100%; height: 65%; }
-            
-            /* Mobile me Video Call bilkul Full Screen ho jayegi */
-            .video-box { height: 100vh; max-width: 100%; border-radius: 0; position: absolute; top: 0; left: 0; margin: 0; }
-            #local-video { width: 100px; height: 140px; bottom: 120px; right: 15px; }
-            .call-btns { position: absolute; bottom: 40px; }
-            #call-status-text { position: absolute; top: 40px; background: rgba(0,0,0,0.5); padding: 5px 15px; border-radius: 20px; }
-        }
     </style>
 </head>
 <body>
@@ -102,7 +102,6 @@
         
         <button id="login-btn" class="btn-login">Login</button>
         <button id="register-btn" class="btn-reg">New Register</button>
-        <p style="font-size: 11px; margin-top: 10px; color: #888;">Note: Name aur Department sirf Register ke waqt zaroori hain. Login ke liye sirf Email/Pass chahiye.</p>
     </div>
 
     <div id="app-section">
@@ -111,6 +110,7 @@
                 <div id="my-name">User Profile</div>
                 <button id="logout-btn" style="background: transparent; color: white; border: 1px solid white; padding: 4px 8px; border-radius: 4px; cursor: pointer;">Logout</button>
             </div>
+            <button class="schedule-btn" id="open-schedule-modal">📅 Schedule Meeting & Send Email</button>
             <div class="users-list" id="users-list"></div>
         </div>
 
@@ -124,7 +124,7 @@
             </div>
 
             <div class="chat-messages" id="messages">
-                <p style="text-align: center; color: #777;">Chat shuru karein...</p>
+                <p style="text-align: center; color: #777;">Chat ya meeting shuru karein...</p>
             </div>
 
             <div class="chat-input" id="chat-input-area" style="display: none;">
@@ -137,27 +137,57 @@
         </div>
     </div>
 
-    <!-- CALL MODAL -->
+    <div class="modal-overlay" id="schedule-modal">
+        <div class="modal-card">
+            <h3>Schedule Coworker Meeting</h3>
+            
+            <label>Meeting Head / Host:</label>
+            <select id="meeting-head-select"></select>
+
+            <label>Select Participants (Coworkers):</label>
+            <select id="meeting-members-select" multiple style="height: 80px;"></select>
+            <small style="color:#666; font-size:11px;">Ctrl / Shift dabakar ek se zyada select karein</small>
+
+            <label>Date & Time:</label>
+            <input type="datetime-local" id="meeting-datetime">
+
+            <label>Meeting Agenda (Maqsad):</label>
+            <textarea id="meeting-agenda" placeholder="Meeting ka maqsad likhein..."></textarea>
+
+            <div class="modal-btns">
+                <button class="btn-cancel" id="close-schedule-modal">Cancel</button>
+                <button class="btn-submit" id="send-meeting-invitation">Send Email Invite & Schedule</button>
+            </div>
+        </div>
+    </div>
+
     <div class="call-overlay" id="call-modal">
         <h3 id="call-status-text">Calling...</h3>
-        
-        <!-- Video Container -->
-        <div class="video-box">
-            <!-- Doosre bande ki video (Background / Bari) -->
-            <video id="remote-video" autoplay playsinline></video>
-            <!-- Apni video (Choti / Floating) -->
-            <video id="local-video" autoplay playsinline muted></video>
-        </div>
-
-        <audio id="remote-audio" autoplay></audio>
-        
         <div class="call-btns">
             <button id="accept-call-btn" class="btn-call btn-accept" style="display: none;">Accept</button>
             <button id="hangup-call-btn" class="btn-call btn-reject">End Call</button>
         </div>
     </div>
 
-    <!-- v=5 lagaya gaya hai cache clear karne ke liye -->
-    <script type="module" src="app.js?v=5"></script>
+    <div class="meeting-overlay" id="meeting-room">
+        <div class="meeting-header">
+            <div>
+                <h3 id="meeting-room-title">Conference Meeting</h3>
+                <small id="meeting-room-agenda" style="color: #bbb;"></small>
+            </div>
+            <div id="meeting-head-badge" style="background: #075e54; padding: 5px 12px; border-radius: 15px; font-size: 12px;">Head: ---</div>
+        </div>
+
+        <div class="video-grid" id="video-grid">
+            </div>
+
+        <div class="meeting-controls">
+            <button class="ctrl-btn btn-mic-on" id="toggle-mic-btn" title="Mute/Unmute Mic">🎙️</button>
+            <button class="ctrl-btn btn-cam-on" id="toggle-cam-btn" title="Camera On/Off">📹</button>
+            <button class="ctrl-btn btn-leave" id="leave-meeting-btn" title="Leave Meeting">Leave</button>
+        </div>
+    </div>
+
+    <script type="module" src="app.js?v=6"></script>
 </body>
 </html>
