@@ -17,6 +17,11 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
 
+// EMAILJS SETUP (APNI PUBLIC KEY YAHAN REPLACE KAREIN)
+(function() {
+    emailjs.init("YOUR_EMAILJS_PUBLIC_KEY"); // EmailJS Public Key yahan lagayein
+})();
+
 // DOM Elements
 const authSection = document.getElementById('auth-section');
 const appSection = document.getElementById('app-section');
@@ -34,25 +39,36 @@ const msgInput = document.getElementById('msg-input');
 const fileInput = document.getElementById('file-input');
 const attachBtn = document.getElementById('attach-btn');
 
-const callModal = document.getElementById('call-modal');
-const callStatusText = document.getElementById('call-status-text');
-const acceptCallBtn = document.getElementById('accept-call-btn');
-const hangupCallBtn = document.getElementById('hangup-call-btn');
-const localVideo = document.getElementById('local-video');
-const remoteVideo = document.getElementById('remote-video');
-const remoteAudio = document.getElementById('remote-audio');
+// Meeting Schedule Elements
+const scheduleModal = document.getElementById('schedule-modal');
+const openScheduleBtn = document.getElementById('open-schedule-modal');
+const closeScheduleBtn = document.getElementById('close-schedule-modal');
+const meetingHeadSelect = document.getElementById('meeting-head-select');
+const meetingMembersSelect = document.getElementById('meeting-members-select');
+const meetingDatetime = document.getElementById('meeting-datetime');
+const meetingAgenda = document.getElementById('meeting-agenda');
+const sendMeetingBtn = document.getElementById('send-meeting-invitation');
+
+// Multi-User Meeting Room Elements
+const meetingRoom = document.getElementById('meeting-room');
+const videoGrid = document.getElementById('video-grid');
+const toggleMicBtn = document.getElementById('toggle-mic-btn');
+const toggleCamBtn = document.getElementById('toggle-cam-btn');
+const leaveMeetingBtn = document.getElementById('leave-meeting-btn');
 
 let currentUser = null;
 let selectedUser = null;
-let peerConnection = null;
-let localStream = null;
-let remoteStream = null;
-let currentCallId = null;
+let allUsersMap = {};
 let myFullName = "";
+
+// Meeting Control Variables
+let localMeetingStream = null;
+let isMicOn = true;
+let isCamOn = true;
 
 const servers = { iceServers: [{ urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }] };
 
-// ================= AUTHENTICATION & PROFILE =================
+// ================= AUTHENTICATION =================
 document.getElementById('register-btn').addEventListener('click', async () => {
     const name = regNameInput.value.trim();
     const dept = regDeptInput.value;
@@ -67,20 +83,11 @@ document.getElementById('register-btn').addEventListener('click', async () => {
     try {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
-        
-        // Zaroori: Database mein user ka data lazmi save karna hai
         await set(ref(db, `users/${user.uid}`), {
-            uid: user.uid,
-            email: user.email,
-            name: name,
-            department: dept,
-            status: 'online'
+            uid: user.uid, email: user.email, name: name, department: dept, status: 'online'
         });
-        
-        alert("Registration successful! Aap ab logged in hain.");
-    } catch (err) {
-        alert("Error: " + err.message);
-    }
+        alert("Registration successful!");
+    } catch (err) { alert("Error: " + err.message); }
 });
 
 document.getElementById('login-btn').addEventListener('click', () => {
@@ -101,26 +108,15 @@ onAuthStateChanged(auth, (user) => {
         onValue(ref(db, `users/${user.uid}`), (snapshot) => {
             const data = snapshot.val();
             if(data) {
-                myFullName = `${data.name || ''} (${data.department || ''})`;
+                myFullName = `${data.name || user.email.split('@')[0]} (${data.department || 'Staff'})`;
                 myNameDisplay.innerHTML = `<strong>${data.name || user.email.split('@')[0]}</strong> <br><small>${data.department || ''}</small>`;
-                
-                // Status update karein (Bina data delete kiye)
                 update(ref(db, `users/${user.uid}`), { status: 'online' });
-            } else {
-                 // Agar purana account hai jiska data DB mein nahi, usay bhi sambhal lein
-                 myNameDisplay.innerText = user.email.split('@')[0];
-                 set(ref(db, `users/${user.uid}`), {
-                     uid: user.uid,
-                     email: user.email,
-                     status: 'online'
-                 });
             }
         }, { onlyOnce: true });
-        
-        onDisconnect(ref(db, `users/${user.uid}/status`)).set('offline');
 
+        onDisconnect(ref(db, `users/${user.uid}/status`)).set('offline');
         loadUsersList();
-        listenForIncomingCalls();
+        listenForScheduledMeetings();
     } else {
         currentUser = null;
         authSection.style.display = 'block';
@@ -132,21 +128,33 @@ onAuthStateChanged(auth, (user) => {
 function loadUsersList() {
     onValue(ref(db, 'users'), (snapshot) => {
         usersListDiv.innerHTML = '';
+        meetingHeadSelect.innerHTML = '';
+        meetingMembersSelect.innerHTML = '';
+        allUsersMap = {};
+
         snapshot.forEach((child) => {
             const u = child.val();
+            allUsersMap[u.uid] = u;
+
+            // Schedule Meeting Dropdowns Fill Karna
+            const optHead = document.createElement('option');
+            optHead.value = u.uid;
+            optHead.innerText = `${u.name || u.email.split('@')[0]} - ${u.department || 'Staff'}`;
+            meetingHeadSelect.appendChild(optHead);
+
             if (u.uid !== currentUser.uid) {
+                const optMember = document.createElement('option');
+                optMember.value = u.email;
+                optMember.innerText = `${u.name || u.email.split('@')[0]} (${u.department || 'Staff'})`;
+                meetingMembersSelect.appendChild(optMember);
+
+                // Sidebar Users List
                 const item = document.createElement('div');
                 item.className = 'user-item';
                 if (selectedUser && selectedUser.uid === u.uid) item.classList.add('active');
                 
                 const statusDot = u.status === 'online' ? '<span class="online-dot"></span>' : '<span class="offline-dot"></span>';
-                
-                let displayName = "";
-                if(u.name && u.department) {
-                    displayName = `<div><strong>${u.name}</strong><br><small style="color:#666;">${u.department}</small></div>`;
-                } else {
-                    displayName = `<div><strong>${u.email.split('@')[0]}</strong></div>`;
-                }
+                const displayName = `<div><strong>${u.name || u.email.split('@')[0]}</strong><br><small style="color:#666;">${u.department || 'Staff'}</small></div>`;
 
                 item.innerHTML = `${displayName} ${statusDot}`;
 
@@ -156,7 +164,7 @@ function loadUsersList() {
                     callButtons.style.display = 'block';
                     chatInputArea.style.display = 'flex';
                     loadMessages();
-                    loadUsersList(); 
+                    loadUsersList();
                 };
                 usersListDiv.appendChild(item);
             }
@@ -166,7 +174,7 @@ function loadUsersList() {
 
 function getChatId() { return [currentUser.uid, selectedUser.uid].sort().join('_'); }
 
-// ================= CHAT & FILE SYSTEM =================
+// ================= CHAT & FILES =================
 function loadMessages() {
     const chatId = getChatId();
     onValue(ref(db, `chats/${chatId}`), (snapshot) => {
@@ -178,17 +186,13 @@ function loadMessages() {
             
             let content = '';
             if (msg.text) content += `<div>${msg.text}</div>`;
-            
             if (msg.fileData) {
                 if (msg.fileType && msg.fileType.startsWith('image/')) {
-                    content += `<img src="${msg.fileData}" alt="shared-image" style="max-width: 100%; border-radius: 5px; margin-top: 5px; cursor: pointer;" class="zoomable-image">`;
+                    content += `<img src="${msg.fileData}" style="max-width:100%; border-radius:5px; margin-top:5px;" onclick="window.open('${msg.fileData}')">`;
                 } else {
-                    content += `<div style="margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.05); border-radius: 5px;">
-                        📄 <a href="${msg.fileData}" download="${msg.fileName}">Download ${msg.fileName}</a>
-                    </div>`;
+                    content += `<div style="margin-top:5px;"><a href="${msg.fileData}" download="${msg.fileName}">📄 ${msg.fileName}</a></div>`;
                 }
             }
-            
             msgEl.innerHTML = content;
             messagesDiv.appendChild(msgEl);
         });
@@ -198,188 +202,140 @@ function loadMessages() {
 
 document.getElementById('send-btn').addEventListener('click', () => {
     if (!msgInput.value.trim() || !selectedUser) return;
-    push(ref(db, `chats/${getChatId()}`), {
-        sender: currentUser.uid, text: msgInput.value, timestamp: Date.now()
-    });
+    push(ref(db, `chats/${getChatId()}`), { sender: currentUser.uid, text: msgInput.value, timestamp: Date.now() });
     msgInput.value = '';
 });
 
-// IMAGE ZOOM
-messagesDiv.addEventListener('click', (e) => {
-    if (e.target.tagName === 'IMG' && e.target.classList.contains('zoomable-image')) {
-        showImagePopup(e.target.src);
+// ================= MEETING SCHEDULING & EMAIL =================
+openScheduleBtn.addEventListener('click', () => scheduleModal.style.display = 'flex');
+closeScheduleBtn.addEventListener('click', () => scheduleModal.style.display = 'none');
+
+sendMeetingBtn.addEventListener('click', async () => {
+    const headUid = meetingHeadSelect.value;
+    const selectedOptions = Array.from(meetingMembersSelect.selectedOptions).map(o => o.value);
+    const datetime = meetingDatetime.value;
+    const agenda = meetingAgenda.value.trim();
+
+    if (!datetime || !agenda || selectedOptions.length === 0) {
+        alert("Tamam fields (Coworkers, Date/Time, Agenda) lazmi fill karein!");
+        return;
+    }
+
+    const headUser = allUsersMap[headUid];
+    const meetingData = {
+        meetingId: 'meet_' + Date.now(),
+        headName: headUser.name || headUser.email,
+        headDept: headUser.department || '',
+        datetime: datetime,
+        agenda: agenda,
+        createdByName: myFullName,
+        participants: selectedOptions
+    };
+
+    // 1. Database me Scheduled Meeting Push Karein
+    push(ref(db, 'scheduled_meetings'), meetingData);
+
+    // 2. Selected Coworkers ko Email Send Karein (via EmailJS)
+    selectedOptions.forEach(userEmail => {
+        const templateParams = {
+            to_email: userEmail,
+            meeting_head: `${headUser.name} (${headUser.department})`,
+            date_time: datetime,
+            agenda: agenda,
+            invited_by: myFullName
+        };
+
+        // Agar EmailJS Service & Template ID configured hain
+        emailjs.send('YOUR_SERVICE_ID', 'YOUR_TEMPLATE_ID', templateParams)
+            .then(() => console.log('Email sent to ' + userEmail))
+            .catch(err => console.log('Email Error: ', err));
+    });
+
+    alert("Meeting schedule ho gayi aur sabhi selected coworkers ko invitation bhej di gayi hai!");
+    scheduleModal.style.display = 'none';
+    meetingAgenda.value = '';
+});
+
+// ================= INCOMING MEETING INVITATION NOTIFICATION =================
+function listenForScheduledMeetings() {
+    onChildAdded(ref(db, 'scheduled_meetings'), (snapshot) => {
+        const meet = snapshot.val();
+        if (meet.participants.includes(currentUser.email) || meet.headName.includes(currentUser.email)) {
+            // Screen par meeting alert card show karna
+            const msgEl = document.createElement('div');
+            msgEl.className = 'message-bubble msg-other';
+            msgEl.style.background = '#fff3cd';
+            msgEl.style.border = '1px solid #ffeeba';
+            msgEl.innerHTML = `
+                <strong>📅 Meeting Invitation Received</strong><br>
+                <b>Head:</b> ${meet.headName}<br>
+                <b>Time:</b> ${meet.datetime}<br>
+                <b>Agenda:</b> ${meet.agenda}<br>
+                <button id="join-${meet.meetingId}" style="margin-top:8px; background:#075e54; color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer;">Join Meeting Room</button>
+            `;
+            messagesDiv.appendChild(msgEl);
+            
+            document.getElementById(`join-${meet.meetingId}`).onclick = () => startMultiUserMeeting(meet);
+        }
+    });
+}
+
+// ================= PROFESSIONAL MULTI-USER MEETING ROOM =================
+async function startMultiUserMeeting(meetInfo) {
+    meetingRoom.style.display = 'flex';
+    document.getElementById('meeting-room-title').innerText = `Meeting: ${meetInfo.agenda}`;
+    document.getElementById('meeting-room-agenda').innerText = `Scheduled Time: ${meetInfo.datetime}`;
+    document.getElementById('meeting-head-badge').innerText = `Head: ${meetInfo.headName}`;
+
+    try {
+        localMeetingStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        addVideoStream(localMeetingStream, `${myFullName} (You)`);
+    } catch (e) {
+        alert("Camera / Mic access error: " + e.message);
+    }
+}
+
+function addVideoStream(stream, userName) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'video-wrapper';
+
+    const video = document.createElement('video');
+    video.srcObject = stream;
+    video.autoplay = true;
+    video.playsInline = true;
+
+    const label = document.createElement('div');
+    label.className = 'user-label';
+    label.innerText = userName;
+
+    wrapper.appendChild(video);
+    wrapper.appendChild(label);
+    videoGrid.appendChild(wrapper);
+}
+
+// Controls (Mic Mute / Camera Toggle)
+toggleMicBtn.addEventListener('click', () => {
+    if (localMeetingStream) {
+        isMicOn = !isMicOn;
+        localMeetingStream.getAudioTracks()[0].enabled = isMicOn;
+        toggleMicBtn.className = isMicOn ? 'ctrl-btn btn-mic-on' : 'ctrl-btn btn-mic-off';
+        toggleMicBtn.innerText = isMicOn ? '🎙️' : '🔇';
     }
 });
 
-function showImagePopup(imgSrc) {
-    const overlay = document.createElement('div');
-    overlay.style.position = 'fixed';
-    overlay.style.top = '0'; overlay.style.left = '0';
-    overlay.style.width = '100vw'; overlay.style.height = '100vh';
-    overlay.style.backgroundColor = 'rgba(0,0,0,0.85)';
-    overlay.style.display = 'flex'; overlay.style.justifyContent = 'center'; overlay.style.alignItems = 'center';
-    overlay.style.zIndex = '9999'; overlay.style.cursor = 'pointer';
-
-    const img = document.createElement('img');
-    img.src = imgSrc; img.style.maxWidth = '90%'; img.style.maxHeight = '90%'; img.style.borderRadius = '10px';
-
-    const closeIcon = document.createElement('div');
-    closeIcon.innerHTML = '✖'; closeIcon.style.position = 'absolute'; closeIcon.style.top = '20px'; closeIcon.style.right = '30px'; closeIcon.style.color = 'white'; closeIcon.style.fontSize = '30px';
-    
-    overlay.appendChild(img); overlay.appendChild(closeIcon);
-    overlay.onclick = () => document.body.removeChild(overlay);
-    document.body.appendChild(overlay);
-}
-
-// FILE UPLOAD (HD IMAGES)
-attachBtn.addEventListener('click', () => fileInput.click());
-
-fileInput.addEventListener('change', function(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    if (file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        reader.onload = function(event) {
-            const img = new Image();
-            img.onload = function() {
-                const canvas = document.createElement('canvas');
-                let width = img.width, height = img.height;
-                const MAX_WIDTH = 1500, MAX_HEIGHT = 1500;
-
-                if (width > height) { if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; } } 
-                else { if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; } }
-
-                canvas.width = width; canvas.height = height;
-                canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-                sendFileData(canvas.toDataURL('image/jpeg', 0.85), 'image/jpeg', file.name);
-            }
-            img.src = event.target.result;
-        }
-        reader.readAsDataURL(file);
-    } 
-    else {
-        if(file.size > 3 * 1024 * 1024) { alert('File 3MB se choti honi chahiye.'); return; }
-        const reader = new FileReader();
-        reader.onload = function(event) { sendFileData(event.target.result, file.type, file.name); }
-        reader.readAsDataURL(file);
+toggleCamBtn.addEventListener('click', () => {
+    if (localMeetingStream) {
+        isCamOn = !isCamOn;
+        localMeetingStream.getVideoTracks()[0].enabled = isCamOn;
+        toggleCamBtn.className = isCamOn ? 'ctrl-btn btn-cam-on' : 'ctrl-btn btn-cam-off';
+        toggleCamBtn.innerText = isCamOn ? '📹' : '📷';
     }
-    e.target.value = ''; 
 });
 
-function sendFileData(base64Data, type, name) {
-    push(ref(db, `chats/${getChatId()}`), { sender: currentUser.uid, text: '', fileData: base64Data, fileType: type, fileName: name, timestamp: Date.now() });
-}
-
-// ================= CALLING SYSTEM =================
-document.getElementById('audio-call-btn').addEventListener('click', () => startCall(false));
-document.getElementById('video-call-btn').addEventListener('click', () => startCall(true));
-
-async function startCall(isVideo) {
-    if (!selectedUser) return;
-    callModal.style.display = 'flex';
-    callStatusText.innerText = `Calling ${selectedUser.name || selectedUser.email.split('@')[0]}...`;
-    acceptCallBtn.style.display = 'none';
-
-    try {
-        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: isVideo });
-        if (isVideo) localVideo.srcObject = localStream;
-    } catch (e) { alert("Camera/Mic Permission nahi mili"); endCall(); return; }
-
-    peerConnection = new RTCPeerConnection(servers);
-    remoteStream = new MediaStream();
-    if (isVideo) remoteVideo.srcObject = remoteStream;
-    else remoteAudio.srcObject = remoteStream;
-
-    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-    peerConnection.ontrack = (event) => event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
-
-    const callRef = push(ref(db, 'calls'));
-    currentCallId = callRef.key;
-
-    peerConnection.onicecandidate = (e) => {
-        if (e.candidate) push(ref(db, `calls/${currentCallId}/callerCandidates`), e.candidate.toJSON());
-    };
-
-    const offer = await peerConnection.createOffer();
-    await peerConnection.setLocalDescription(offer);
-    set(ref(db, `calls/${currentCallId}/offer`), { type: offer.type, sdp: offer.sdp });
-
-    set(ref(db, `users/${selectedUser.uid}/incomingCall`), { 
-        callId: currentCallId, 
-        callerName: myFullName, 
-        isVideo: isVideo 
-    });
-
-    onValue(ref(db, `calls/${currentCallId}/answer`), (snapshot) => {
-        const data = snapshot.val();
-        if (data && !peerConnection.currentRemoteDescription) {
-            callStatusText.innerText = "Connected";
-            peerConnection.setRemoteDescription(new RTCSessionDescription(data));
-        }
-    });
-
-    onChildAdded(ref(db, `calls/${currentCallId}/calleeCandidates`), (snapshot) => {
-        peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val()));
-    });
-}
-
-function listenForIncomingCalls() {
-    onValue(ref(db, `users/${currentUser.uid}/incomingCall`), (snapshot) => {
-        const callData = snapshot.val();
-        if (callData) {
-            currentCallId = callData.callId;
-            callModal.style.display = 'flex';
-            callStatusText.innerText = `Incoming ${callData.isVideo ? 'Video' : 'Audio'} Call from ${callData.callerName}`;
-            acceptCallBtn.style.display = 'inline-block';
-            acceptCallBtn.onclick = () => acceptIncomingCall(callData);
-        }
-    });
-}
-
-async function acceptIncomingCall(callData) {
-    acceptCallBtn.style.display = 'none';
-    callStatusText.innerText = "Connecting...";
-    try {
-        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: callData.isVideo });
-        if (callData.isVideo) localVideo.srcObject = localStream;
-    } catch (e) { endCall(); return; }
-
-    peerConnection = new RTCPeerConnection(servers);
-    remoteStream = new MediaStream();
-    if (callData.isVideo) remoteVideo.srcObject = remoteStream;
-    else remoteAudio.srcObject = remoteStream;
-
-    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-    peerConnection.ontrack = (e) => e.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
-
-    peerConnection.onicecandidate = (e) => {
-        if (e.candidate) push(ref(db, `calls/${currentCallId}/calleeCandidates`), e.candidate.toJSON());
-    };
-
-    onValue(ref(db, `calls/${currentCallId}/offer`), async (snapshot) => {
-        const offer = snapshot.val();
-        if (offer) {
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            set(ref(db, `calls/${currentCallId}/answer`), { type: answer.type, sdp: answer.sdp });
-            callStatusText.innerText = "Connected";
-        }
-    }, { onlyOnce: true });
-
-    onChildAdded(ref(db, `calls/${currentCallId}/callerCandidates`), (snapshot) => {
-        peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val()));
-    });
-    remove(ref(db, `users/${currentUser.uid}/incomingCall`));
-}
-
-hangupCallBtn.addEventListener('click', endCall);
-function endCall() {
-    if (peerConnection) peerConnection.close();
-    if (localStream) localStream.getTracks().forEach(t => t.stop());
-    callModal.style.display = 'none';
-    if (currentUser) remove(ref(db, `users/${currentUser.uid}/incomingCall`));
-    if (currentCallId) remove(ref(db, `calls/${currentCallId}`));
-    currentCallId = null; peerConnection = null;
-}
+leaveMeetingBtn.addEventListener('click', () => {
+    if (localMeetingStream) {
+        localMeetingStream.getTracks().forEach(track => track.stop());
+    }
+    videoGrid.innerHTML = '';
+    meetingRoom.style.display = 'none';
+});
