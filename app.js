@@ -18,7 +18,6 @@ const db = getDatabase(app);
 
 // ====== EMAILJS SETUP ======
 (function() {
-    // Aapki Public Key yahan lag gayi hai
     emailjs.init("CPy8DRdtRywJozXJR"); 
 })();
 
@@ -63,18 +62,29 @@ const localVideo = document.getElementById('local-video');
 const remoteVideo = document.getElementById('remote-video');
 const remoteAudio = document.getElementById('remote-audio');
 
+// Ringtone Setup
+const ringtone = new Audio('https://actions.google.com/sounds/v1/alarms/phone_ring.ogg');
+ringtone.loop = true;
+
 let currentUser = null;
 let selectedUser = null;
 let allUsersMap = {};
 let myFullName = "";
 let jitsiApi = null; 
 
-// WebRTC Variables (1-on-1)
+// WebRTC Variables
 let peerConnection = null;
 let localStream = null;
-let remoteStream = null;
 let currentCallId = null;
-const servers = { iceServers: [{ urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }] };
+
+// Improved STUN Servers (Better Audio/Video Connectivity)
+const servers = { 
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' }
+    ] 
+};
 
 // ================= AUTHENTICATION =================
 document.getElementById('register-btn').addEventListener('click', async () => {
@@ -181,10 +191,8 @@ sendMeetingBtn.addEventListener('click', () => {
         participants: selectedOptions
     };
 
-    // Firebase me save karein
     push(ref(db, 'scheduled_meetings'), meetingData);
 
-    // Emails Send karein
     let emailSuccessCount = 0;
     selectedOptions.forEach(userEmail => {
         const templateParams = {
@@ -195,13 +203,10 @@ sendMeetingBtn.addEventListener('click', () => {
             invited_by: myFullName
         };
 
-        // ====== AAPKI SERVICE ID AUR TEMPLATE ID ======
         emailjs.send('service_nzjlttn', 'template_ul2r6c8', templateParams)
             .then(() => {
                 emailSuccessCount++;
-                if (emailSuccessCount === selectedOptions.length) {
-                    alert("Meeting schedule ho gayi aur Emails send ho gayin!");
-                }
+                if (emailSuccessCount === selectedOptions.length) alert("Meeting schedule ho gayi aur Emails send ho gayin!");
             })
             .catch(err => {
                 console.error('Email Error: ', err);
@@ -225,7 +230,6 @@ function listenForScheduledMeetings() {
                 <b>Head:</b> ${meet.headName}<br><b>Time:</b> ${meet.datetime}<br><b>Agenda:</b> ${meet.agenda}<br>
                 <button id="join-${meet.meetingId}" style="margin-top:8px; background:#075e54; color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer;">Join Meeting Room</button>`;
             messagesDiv.appendChild(msgEl);
-            
             document.getElementById(`join-${meet.meetingId}`).onclick = () => startMultiUserMeeting(meet);
         }
     });
@@ -238,7 +242,7 @@ function startMultiUserMeeting(meetInfo) {
 
     const domain = 'meet.jit.si';
     const options = {
-        roomName: meetInfo.meetingId, // Same room ID for everyone
+        roomName: meetInfo.meetingId,
         width: '100%',
         height: '100%',
         parentNode: jitsiContainer,
@@ -253,63 +257,104 @@ leaveMeetingBtn.addEventListener('click', () => {
     meetingRoom.style.display = 'none';
 });
 
-// ================= 1-ON-1 CALLING SYSTEM =================
+// ================= 1-ON-1 CALLING SYSTEM (WITH RING & AUTO-CUT) =================
 document.getElementById('audio-call-btn').addEventListener('click', () => startCall(false));
 document.getElementById('video-call-btn').addEventListener('click', () => startCall(true));
 
 async function startCall(isVideo) {
     if (!selectedUser) return;
-    callModal.style.display = 'flex'; callStatusText.innerText = `Calling...`; acceptCallBtn.style.display = 'none';
+    callModal.style.display = 'flex'; callStatusText.innerText = `Ringing...`; acceptCallBtn.style.display = 'none';
+    
     try {
         localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: isVideo });
         if (isVideo) localVideo.srcObject = localStream;
-    } catch (e) { alert("Camera/Mic Permission nahi mili"); endCall(); return; }
+    } catch (e) { alert("Camera/Mic Permission nahi mili"); cleanupCall(); return; }
 
     peerConnection = new RTCPeerConnection(servers);
-    remoteStream = new MediaStream();
-    if (isVideo) remoteVideo.srcObject = remoteStream; else remoteAudio.srcObject = remoteStream;
-
+    
     localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-    peerConnection.ontrack = (event) => event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
+    
+    // Fixed Audio/Video Mapping
+    peerConnection.ontrack = (event) => {
+        if (event.streams && event.streams[0]) {
+            if (isVideo) remoteVideo.srcObject = event.streams[0];
+            else remoteAudio.srcObject = event.streams[0];
+        }
+    };
 
-    const callRef = push(ref(db, 'calls')); currentCallId = callRef.key;
+    const callRef = push(ref(db, 'calls')); 
+    currentCallId = callRef.key;
+    
     peerConnection.onicecandidate = (e) => { if (e.candidate) push(ref(db, `calls/${currentCallId}/callerCandidates`), e.candidate.toJSON()); };
 
-    const offer = await peerConnection.createOffer(); await peerConnection.setLocalDescription(offer);
+    const offer = await peerConnection.createOffer(); 
+    await peerConnection.setLocalDescription(offer);
+    
     set(ref(db, `calls/${currentCallId}/offer`), { type: offer.type, sdp: offer.sdp });
     set(ref(db, `users/${selectedUser.uid}/incomingCall`), { callId: currentCallId, callerName: myFullName, isVideo: isVideo });
 
+    // Listen for Answer
     onValue(ref(db, `calls/${currentCallId}/answer`), (snapshot) => {
         const data = snapshot.val();
-        if (data && !peerConnection.currentRemoteDescription) { callStatusText.innerText = ""; peerConnection.setRemoteDescription(new RTCSessionDescription(data)); }
+        if (data && !peerConnection.currentRemoteDescription) { 
+            callStatusText.innerText = ""; 
+            peerConnection.setRemoteDescription(new RTCSessionDescription(data)); 
+        }
     });
+
     onChildAdded(ref(db, `calls/${currentCallId}/calleeCandidates`), (snapshot) => { peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val())); });
+
+    // Listen for Auto-Cut (Agar receiver call reject kare ya cut kare)
+    onValue(ref(db, `calls/${currentCallId}`), (snapshot) => {
+        if (!snapshot.exists()) cleanupCall();
+    });
 }
 
 function listenForIncomingCalls() {
     onValue(ref(db, `users/${currentUser.uid}/incomingCall`), (snapshot) => {
         const callData = snapshot.val();
         if (callData) {
-            currentCallId = callData.callId; callModal.style.display = 'flex';
+            currentCallId = callData.callId; 
+            callModal.style.display = 'flex';
             callStatusText.innerText = `Incoming ${callData.isVideo ? 'Video' : 'Audio'} Call from ${callData.callerName}`;
-            acceptCallBtn.style.display = 'inline-block'; acceptCallBtn.onclick = () => acceptIncomingCall(callData);
+            acceptCallBtn.style.display = 'inline-block'; 
+            
+            // Play Ringtone
+            ringtone.play().catch(e => console.log("Ringtone blocked by browser autoplay rules"));
+            
+            acceptCallBtn.onclick = () => acceptIncomingCall(callData);
+
+            // Listen for Auto-Cut (Agar caller call end kar de uthane se pehle)
+            onValue(ref(db, `calls/${currentCallId}`), (callSnap) => {
+                if (!callSnap.exists()) {
+                    remove(ref(db, `users/${currentUser.uid}/incomingCall`));
+                    cleanupCall();
+                }
+            });
         }
     });
 }
 
 async function acceptIncomingCall(callData) {
     acceptCallBtn.style.display = 'none'; callStatusText.innerText = "Connecting...";
+    ringtone.pause(); ringtone.currentTime = 0; // Stop Ringtone
+
     try {
         localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: callData.isVideo });
         if (callData.isVideo) localVideo.srcObject = localStream;
-    } catch (e) { endCall(); return; }
+    } catch (e) { cleanupCall(); return; }
 
     peerConnection = new RTCPeerConnection(servers);
-    remoteStream = new MediaStream();
-    if (callData.isVideo) remoteVideo.srcObject = remoteStream; else remoteAudio.srcObject = remoteStream;
-
+    
     localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-    peerConnection.ontrack = (e) => e.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
+    
+    // Fixed Audio/Video Mapping
+    peerConnection.ontrack = (event) => {
+        if (event.streams && event.streams[0]) {
+            if (callData.isVideo) remoteVideo.srcObject = event.streams[0];
+            else remoteAudio.srcObject = event.streams[0];
+        }
+    };
 
     peerConnection.onicecandidate = (e) => { if (e.candidate) push(ref(db, `calls/${currentCallId}/calleeCandidates`), e.candidate.toJSON()); };
 
@@ -317,23 +362,38 @@ async function acceptIncomingCall(callData) {
         const offer = snapshot.val();
         if (offer) {
             await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-            const answer = await peerConnection.createAnswer(); await peerConnection.setLocalDescription(answer);
+            const answer = await peerConnection.createAnswer(); 
+            await peerConnection.setLocalDescription(answer);
             set(ref(db, `calls/${currentCallId}/answer`), { type: answer.type, sdp: answer.sdp });
             callStatusText.innerText = "";
         }
     }, { onlyOnce: true });
+
     onChildAdded(ref(db, `calls/${currentCallId}/callerCandidates`), (snapshot) => { peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val())); });
     remove(ref(db, `users/${currentUser.uid}/incomingCall`));
 }
 
-hangupCallBtn.addEventListener('click', endCall);
-function endCall() {
-    if (peerConnection) peerConnection.close();
-    if (localStream) localStream.getTracks().forEach(t => t.stop());
-    callModal.style.display = 'none'; callStatusText.innerText = "Calling...";
-    if (currentUser) remove(ref(db, `users/${currentUser.uid}/incomingCall`));
+// Global Hangup Button Action
+hangupCallBtn.addEventListener('click', () => {
+    // Agar currentCallId DB mein hai toh usay delete kar do (Yeh dusri side ko auto-cut trigger kar dega)
     if (currentCallId) remove(ref(db, `calls/${currentCallId}`));
-    currentCallId = null; peerConnection = null;
+    if (currentUser) remove(ref(db, `users/${currentUser.uid}/incomingCall`));
+    if (selectedUser) remove(ref(db, `users/${selectedUser.uid}/incomingCall`));
+    cleanupCall();
+});
+
+// Centralized Cleanup Function (Jo dono taraf camera/mic properly band karega)
+function cleanupCall() {
+    ringtone.pause(); ringtone.currentTime = 0;
+    if (peerConnection) { peerConnection.close(); peerConnection = null; }
+    if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+    if (remoteVideo) remoteVideo.srcObject = null;
+    if (localVideo) localVideo.srcObject = null;
+    if (remoteAudio) remoteAudio.srcObject = null;
+    
+    callModal.style.display = 'none'; 
+    callStatusText.innerText = "Calling...";
+    currentCallId = null;
 }
 
 // ================= CHAT LOGIC =================
