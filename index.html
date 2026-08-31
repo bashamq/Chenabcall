@@ -7,7 +7,7 @@
     
     <!-- EmailJS SDK -->
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
-    <!-- Jitsi Meet API (For Professional Group Meetings) -->
+    <!-- Jitsi Meet API -->
     <script src="https://meet.jit.si/external_api.js"></script>
     
     <style>
@@ -25,7 +25,6 @@
         .sidebar { width: 35%; background: #f0f2f5; border-right: 1px solid #ddd; display: flex; flex-direction: column; }
         .user-header { padding: 15px; background: #075e54; color: white; display: flex; justify-content: space-between; align-items: center; font-size: 15px; }
         .schedule-btn { background: #128c7e; color: white; border: none; padding: 10px; border-radius: 5px; cursor: pointer; font-weight: bold; margin: 10px; font-size: 14px; }
-        .schedule-btn:hover { background: #0f7569; }
         
         .users-list { flex: 1; overflow-y: auto; }
         .user-item { padding: 12px 15px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
@@ -63,12 +62,12 @@
         .btn-cancel { background: #888; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; }
         .btn-submit { background: #075e54; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; }
 
-        /* PROFESSIONAL JITSI MEETING ROOM */
+        /* JITSI GROUP MEETING */
         .meeting-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #1a1a1a; flex-direction: column; z-index: 3000; }
         .meeting-header { padding: 15px 25px; background: #252525; color: white; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
         #jitsi-container { flex: 1; width: 100%; background: #000; }
 
-        /* Incoming 1-on-1 Call Overlay */
+        /* 1-ON-1 WHATSAPP STYLE CALL SCREEN */
         .call-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; color: white; justify-content: center; align-items: center; flex-direction: column; z-index: 1000; }
         .video-box { position: relative; width: 100%; max-width: 900px; height: 80vh; background: #222; border-radius: 15px; overflow: hidden; display: flex; justify-content: center; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
         #remote-video { width: 100%; height: 100%; object-fit: cover; }
@@ -133,7 +132,7 @@
             </div>
 
             <div class="chat-messages" id="messages">
-                <p style="text-align: center; color: #777;">Chat ya meeting shuru karein...</p>
+                <p style="text-align: center; color: #777;">Chat ya call shuru karein...</p>
             </div>
 
             <div class="chat-input" id="chat-input-area" style="display: none;">
@@ -170,11 +169,13 @@
         </div>
     </div>
 
-    <!-- 1-ON-1 CALL OVERLAY -->
+    <!-- 1-ON-1 CALL SCREEN -->
     <div class="call-overlay" id="call-modal">
-        <h3 id="call-status-text" style="position: absolute; top: 20px; z-index: 20; background: rgba(0,0,0,0.5); padding: 5px 15px; border-radius: 20px;">Calling...</h3>
+        <h3 id="call-status-text" style="position: absolute; top: 20px; z-index: 20; background: rgba(0,0,0,0.6); padding: 6px 16px; border-radius: 20px;">Calling...</h3>
         <div class="video-box">
+            <!-- Remote Video / Audio -->
             <video id="remote-video" autoplay playsinline></video>
+            <!-- Local Preview -->
             <video id="local-video" autoplay playsinline muted></video>
         </div>
         <audio id="remote-audio" autoplay></audio>
@@ -184,7 +185,7 @@
         </div>
     </div>
 
-    <!-- PROFESSIONAL MULTI-USER JITSI MEETING ROOM -->
+    <!-- JITSI GROUP MEETING ROOM -->
     <div class="meeting-overlay" id="meeting-room">
         <div class="meeting-header">
             <div>
@@ -192,11 +193,9 @@
             </div>
             <button id="leave-meeting-btn" style="background: #ea4335; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-weight: bold;">Leave Meeting</button>
         </div>
-        
-        <!-- Jitsi Iframe yahan khulega -->
         <div id="jitsi-container"></div>
     </div>
 
-    <script type="module" src="app.js?v=7"></script>
+    <script type="module" src="app.js?v=8"></script>
 </body>
 </html>
