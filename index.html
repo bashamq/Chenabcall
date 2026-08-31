@@ -4,7 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chenabcall - Professional Portal</title>
+    
+    <!-- EmailJS SDK -->
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+    <!-- Jitsi Meet API (For Professional Group Meetings) -->
+    <script src="https://meet.jit.si/external_api.js"></script>
+    
     <style>
         * { box-sizing: border-box; font-family: Arial, sans-serif; margin: 0; padding: 0; }
         body { background-color: #e5ddd5; display: flex; justify-content: center; align-items: center; height: 100vh; }
@@ -19,7 +24,8 @@
         
         .sidebar { width: 35%; background: #f0f2f5; border-right: 1px solid #ddd; display: flex; flex-direction: column; }
         .user-header { padding: 15px; background: #075e54; color: white; display: flex; justify-content: space-between; align-items: center; font-size: 15px; }
-        .schedule-btn { background: #128c7e; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; font-weight: bold; margin: 10px; }
+        .schedule-btn { background: #128c7e; color: white; border: none; padding: 10px; border-radius: 5px; cursor: pointer; font-weight: bold; margin: 10px; font-size: 14px; }
+        .schedule-btn:hover { background: #0f7569; }
         
         .users-list { flex: 1; overflow-y: auto; }
         .user-item { padding: 12px 15px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
@@ -34,7 +40,7 @@
         .message-bubble { max-width: 65%; padding: 8px 12px; border-radius: 8px; font-size: 14px; position: relative; }
         .msg-mine { background: #d9fdd3; align-self: flex-end; }
         .msg-other { background: white; align-self: flex-start; }
-        .message-bubble img { max-width: 250px; border-radius: 5px; margin-top: 5px; display: block; }
+        .message-bubble img { max-width: 250px; border-radius: 5px; margin-top: 5px; display: block; cursor: pointer; }
 
         .chat-input { padding: 10px; background: #f0f2f5; display: flex; gap: 10px; align-items: center; }
         .chat-input input[type="text"] { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 20px; outline: none; }
@@ -46,7 +52,7 @@
         .btn-audio { background: #007bff; color: white; }
         .btn-video { background: #28a745; color: white; }
 
-        /* MODAL STYLING (Meeting Form & Meeting Room) */
+        /* MODAL STYLING */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; z-index: 2000; }
         .modal-card { background: white; width: 90%; max-width: 500px; padding: 25px; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.3); }
         .modal-card h3 { margin-bottom: 15px; color: #075e54; }
@@ -57,39 +63,41 @@
         .btn-cancel { background: #888; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; }
         .btn-submit { background: #075e54; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; }
 
-        /* PROFESSIONAL MULTI-USER MEETING ROOM */
+        /* PROFESSIONAL JITSI MEETING ROOM */
         .meeting-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #1a1a1a; flex-direction: column; z-index: 3000; }
         .meeting-header { padding: 15px 25px; background: #252525; color: white; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
-        .video-grid { flex: 1; padding: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; overflow-y: auto; justify-items: center; align-items: center; }
-        .video-wrapper { position: relative; width: 100%; height: 230px; background: #000; border-radius: 10px; overflow: hidden; border: 2px solid #333; }
-        .video-wrapper video { width: 100%; height: 100%; object-fit: cover; }
-        .video-wrapper .user-label { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.6); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+        #jitsi-container { flex: 1; width: 100%; background: #000; }
 
-        .meeting-controls { padding: 15px; background: #252525; display: flex; justify-content: center; gap: 15px; border-top: 1px solid #333; }
-        .ctrl-btn { width: 50px; height: 50px; border-radius: 50%; border: none; cursor: pointer; font-size: 18px; color: white; display: flex; justify-content: center; align-items: center; }
-        .btn-mic-on { background: #333; }
-        .btn-mic-off { background: #ea4335; }
-        .btn-cam-on { background: #333; }
-        .btn-cam-off { background: #ea4335; }
-        .btn-leave { background: #ea4335; width: 60px; border-radius: 25px; font-size: 14px; font-weight: bold; }
-
-        /* Incoming Call Notification */
-        .call-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); color: white; justify-content: center; align-items: center; flex-direction: column; z-index: 1000; }
-        .call-btns { display: flex; gap: 15px; margin-top: 20px; }
+        /* Incoming 1-on-1 Call Overlay */
+        .call-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; color: white; justify-content: center; align-items: center; flex-direction: column; z-index: 1000; }
+        .video-box { position: relative; width: 100%; max-width: 900px; height: 80vh; background: #222; border-radius: 15px; overflow: hidden; display: flex; justify-content: center; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        #remote-video { width: 100%; height: 100%; object-fit: cover; }
+        #local-video { position: absolute; bottom: 20px; right: 20px; width: 140px; height: 180px; object-fit: cover; border: 2px solid #fff; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); z-index: 10; background: #000; }
+        .call-btns { display: flex; gap: 15px; margin-top: 20px; z-index: 20; }
         .btn-call { padding: 12px 30px; border: none; border-radius: 30px; cursor: pointer; color: white; font-weight: bold; font-size: 16px; }
         .btn-accept { background-color: #25d366; }
         .btn-reject { background-color: #ea4335; }
+
+        @media (max-width: 768px) {
+            #app-section { width: 100%; height: 100vh; border-radius: 0; flex-direction: column; }
+            .sidebar { width: 100%; height: 40%; border-right: none; border-bottom: 1px solid #ddd; }
+            .chat-area { width: 100%; height: 60%; }
+            .video-box { height: 100vh; max-width: 100%; border-radius: 0; position: absolute; top: 0; left: 0; margin: 0; }
+            #local-video { width: 100px; height: 140px; bottom: 120px; right: 15px; }
+            .call-btns { position: absolute; bottom: 40px; }
+        }
     </style>
 </head>
 <body>
 
+    <!-- AUTHENTICATION -->
     <div id="auth-section">
         <h2>Chenabcall</h2>
         <p style="font-size: 12px; color: #666; margin-bottom: 15px;">Coworker Secure Portal</p>
         
         <input type="text" id="reg-name" placeholder="Aapka Naam (For Register)">
         <select id="reg-dept">
-            <option value="">Select Department (For Register)</option>
+            <option value="">Select Department</option>
             <option value="Management">Management</option>
             <option value="Machineshop">Machineshop</option>
             <option value="Foundry">Foundry</option>
@@ -104,13 +112,14 @@
         <button id="register-btn" class="btn-reg">New Register</button>
     </div>
 
+    <!-- MAIN APP DASHBOARD -->
     <div id="app-section">
         <div class="sidebar">
             <div class="user-header">
                 <div id="my-name">User Profile</div>
                 <button id="logout-btn" style="background: transparent; color: white; border: 1px solid white; padding: 4px 8px; border-radius: 4px; cursor: pointer;">Logout</button>
             </div>
-            <button class="schedule-btn" id="open-schedule-modal">📅 Schedule Meeting & Send Email</button>
+            <button class="schedule-btn" id="open-schedule-modal">📅 Schedule & Send Meeting Link</button>
             <div class="users-list" id="users-list"></div>
         </div>
 
@@ -130,16 +139,16 @@
             <div class="chat-input" id="chat-input-area" style="display: none;">
                 <input type="file" id="file-input" style="display: none;" accept="image/*, .pdf, .txt, .zip, .doc">
                 <button id="attach-btn" title="Share File/Image">📎</button>
-                
                 <input type="text" id="msg-input" placeholder="Message likhein...">
                 <button id="send-btn">Send</button>
             </div>
         </div>
     </div>
 
+    <!-- MEETING SCHEDULE FORM -->
     <div class="modal-overlay" id="schedule-modal">
         <div class="modal-card">
-            <h3>Schedule Coworker Meeting</h3>
+            <h3>Schedule Meeting</h3>
             
             <label>Meeting Head / Host:</label>
             <select id="meeting-head-select"></select>
@@ -152,42 +161,42 @@
             <input type="datetime-local" id="meeting-datetime">
 
             <label>Meeting Agenda (Maqsad):</label>
-            <textarea id="meeting-agenda" placeholder="Meeting ka maqsad likhein..."></textarea>
+            <textarea id="meeting-agenda" placeholder="Meeting ka maqsad..."></textarea>
 
             <div class="modal-btns">
                 <button class="btn-cancel" id="close-schedule-modal">Cancel</button>
-                <button class="btn-submit" id="send-meeting-invitation">Send Email Invite & Schedule</button>
+                <button class="btn-submit" id="send-meeting-invitation">Send Email Invite</button>
             </div>
         </div>
     </div>
 
+    <!-- 1-ON-1 CALL OVERLAY -->
     <div class="call-overlay" id="call-modal">
-        <h3 id="call-status-text">Calling...</h3>
+        <h3 id="call-status-text" style="position: absolute; top: 20px; z-index: 20; background: rgba(0,0,0,0.5); padding: 5px 15px; border-radius: 20px;">Calling...</h3>
+        <div class="video-box">
+            <video id="remote-video" autoplay playsinline></video>
+            <video id="local-video" autoplay playsinline muted></video>
+        </div>
+        <audio id="remote-audio" autoplay></audio>
         <div class="call-btns">
             <button id="accept-call-btn" class="btn-call btn-accept" style="display: none;">Accept</button>
             <button id="hangup-call-btn" class="btn-call btn-reject">End Call</button>
         </div>
     </div>
 
+    <!-- PROFESSIONAL MULTI-USER JITSI MEETING ROOM -->
     <div class="meeting-overlay" id="meeting-room">
         <div class="meeting-header">
             <div>
                 <h3 id="meeting-room-title">Conference Meeting</h3>
-                <small id="meeting-room-agenda" style="color: #bbb;"></small>
             </div>
-            <div id="meeting-head-badge" style="background: #075e54; padding: 5px 12px; border-radius: 15px; font-size: 12px;">Head: ---</div>
+            <button id="leave-meeting-btn" style="background: #ea4335; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-weight: bold;">Leave Meeting</button>
         </div>
-
-        <div class="video-grid" id="video-grid">
-            </div>
-
-        <div class="meeting-controls">
-            <button class="ctrl-btn btn-mic-on" id="toggle-mic-btn" title="Mute/Unmute Mic">🎙️</button>
-            <button class="ctrl-btn btn-cam-on" id="toggle-cam-btn" title="Camera On/Off">📹</button>
-            <button class="ctrl-btn btn-leave" id="leave-meeting-btn" title="Leave Meeting">Leave</button>
-        </div>
+        
+        <!-- Jitsi Iframe yahan khulega -->
+        <div id="jitsi-container"></div>
     </div>
 
-    <script type="module" src="app.js?v=6"></script>
+    <script type="module" src="app.js?v=7"></script>
 </body>
 </html>
